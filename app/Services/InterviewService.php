@@ -65,9 +65,10 @@ final class InterviewService
      * @param array<string,mixed> $user
      * @param array<string,mixed> $session interview_sessions row
      * @param int|null $existingQuestionId practice question to attach the guidance to (instead of inserting a new row)
+     * @param callable(string):void|null $onDelta receives raw JSON text deltas while the answer streams
      * @return array<string,mixed> {is_question, question, answer, question_id, ...}
      */
-    public function generateAnswer(array $user, array $session, string $transcript, string $mode, string $source, ?int $existingQuestionId = null): array
+    public function generateAnswer(array $user, array $session, string $transcript, string $mode, string $source, ?int $existingQuestionId = null, ?callable $onDelta = null): array
     {
         $userId = (int) $user['id'];
         $settings = Settings::forUser($userId);
@@ -89,7 +90,7 @@ final class InterviewService
         $history = $this->recentContext($session, (bool) $settings['save_history']);
 
         $payload = $this->buildAnswerPayload($transcript, $mode, $detail, $job, $cv, $history, $autoDetect);
-        $answer = $this->callJson($userId, 'answer', $payload, fn (array $d) => self::normaliseAnswer($d, $mode));
+        $answer = $this->callJson($userId, 'answer', $payload, fn (array $d) => self::normaliseAnswer($d, $mode), $onDelta);
 
         if (!$answer['is_question']) {
             return ['is_question' => false, 'question' => '', 'raw_transcript' => $transcript, 'reason' => 'No interview question detected yet.'];
@@ -159,8 +160,8 @@ final class InterviewService
         $turn[] = '## ANSWER SETTINGS';
         $turn[] = 'Requested mode: ' . strtoupper($mode) . ' — ' . self::modeInstruction($mode);
         $turn[] = 'Detail level: ' . ($detail === 'medium'
-            ? 'MEDIUM — bullets up to ~18 words, 2-3 bullets per section.'
-            : 'SHORT — bullets up to ~12 words, 1-2 bullets per section (Action may have 3).');
+            ? 'MEDIUM — 2-3 sentences per section, each sentence up to ~22 words.'
+            : 'SHORT — 1-2 sentences per section (Action may have 3), each sentence up to ~18 words.');
         $turn[] = $autoDetect
             ? 'The text below is a live speech transcript. It may contain filler, small talk or background talk. Set is_question=false if it does not contain an interview question directed at the candidate.'
             : 'The candidate typed this question themselves: treat it as a question (is_question=true) and clean up wording only.';
@@ -192,7 +193,7 @@ final class InterviewService
     private static function modeInstruction(string $mode): string
     {
         return match ($mode) {
-            'quick'      => 'answer_mode="quick". Put 3-5 short bullets in points. sections must be [].',
+            'quick'      => 'answer_mode="quick". Put 3-5 spoken sentences in points, in the order to say them. sections must be [].',
             'star'       => 'answer_mode="star". sections exactly: Situation, Task, Action, Result. points = 2-3 headline bullets.',
             'technical'  => 'answer_mode="technical". sections exactly: Concept, Steps, Example, Conclusion. points = 2-3 headline bullets.',
             'leadership' => 'answer_mode="leadership". sections exactly: Challenge, Decision, Action, People, Result. points = 2-3 headline bullets.',
@@ -254,26 +255,27 @@ final class InterviewService
     private const ANSWER_INSTRUCTIONS = <<<TXT
 You are an interview response coach.
 
-Your job is to help the candidate quickly structure an authentic answer using information contained in their CV and interview context.
+Your job is to help the candidate give an authentic answer using information contained in their CV and interview context. Every line you write under a section is something the candidate will read out loud, word for word, during a live interview.
 
 Never invent employment history, qualifications, achievements, employers, numbers or experience.
 
 When evidence is unavailable, provide a suggested approach rather than pretending the candidate has the experience.
 
-Answers must be concise enough for the candidate to scan within seconds.
+Answers must be concise enough for the candidate to scan within seconds and natural enough to say out loud.
 
 Process:
 1. QUESTION DETECTION: Decide if the transcript contains an interview question (or a request such as "Tell me about...", "Walk me through...") directed at the candidate. Small talk, thanks, logistics, or the interviewer describing the company are NOT questions (is_question=false). If several sentences precede the question, extract only the actual question. Fix transcription errors and return it as one clean sentence in "question". When is_question=false return empty strings/arrays for every other text field and question_type "unknown".
 2. CLASSIFY question_type.
 3. Compare the question against the job requirements (skills, competencies, tools, leadership and technical requirements) and pick the MOST relevant CV evidence.
 4. WRITE the guidance:
-   - key_message: one sentence — what the answer must demonstrate.
-   - points: 2-5 glanceable bullets (fragments, not paragraphs; start with a verb or keyword).
-   - sections: labelled structure per the requested mode, each with short bullets. Bullets are prompts the candidate speaks from, in first person where natural.
-   - Use real names, employers, tools and numbers ONLY when they appear in the candidate profile. If no metric exists, say "mention a measurable result if you have one" — never make one up.
+   - key_message: one sentence — what the answer must demonstrate (shown as a heading, not spoken).
+   - sections: labelled structure per the requested mode. Each bullet is ONE complete, natural, first-person sentence the candidate can say exactly as written, e.g. "I led the requirements, design and build of the finKAP platform." Plain conversational English; contractions are fine.
+   - Bullets must NEVER be instructions to the candidate: do not write "Explain…", "Mention…", "Describe…", "Talk about…", "if you can recall one". Say it for them instead.
+   - points: 2-3 complete spoken sentences that summarise the whole answer (for quick mode, 3-5 sentences that ARE the answer).
+   - Use real names, employers, tools and numbers ONLY when they appear in the candidate profile. If a useful detail is not in the CV, phrase it generally ("the payment integration", "a tight deadline"); only when it is essential, leave a short gap in square brackets for the candidate to fill, e.g. "One defect I fixed was [the defect]." Never make up a metric.
    - cv_evidence: up to 4 short facts copied/paraphrased from the CV that support this answer (empty if none).
    - evidence_note: if the CV has no relevant evidence, one short sentence saying so and what kind of example to use; otherwise "".
-   - closing_line: one natural spoken sentence to end the answer.
+   - closing_line: one natural spoken sentence to end the answer, linking back to the role.
    - keywords: 3-6 single words or short phrases to emphasise (prefer job-description vocabulary).
 No markdown, no emojis, no long sentences.
 TXT;
@@ -397,14 +399,18 @@ TXT;
 
     /**
      * Call the Responses API expecting JSON; validates with $normalise and retries once on malformed output.
+     * When $onDelta is given the first attempt is streamed (text deltas are forwarded as they arrive).
      * @param callable(array):array $normalise
+     * @param callable(string):void|null $onDelta
      */
-    private function callJson(int $userId, string $action, array $payload, callable $normalise): array
+    private function callJson(int $userId, string $action, array $payload, callable $normalise, ?callable $onDelta = null): array
     {
         $attempts = 0;
         while (true) {
             $attempts++;
-            $res = $this->ai->createResponse($payload);
+            $res = ($onDelta !== null && $attempts === 1)
+                ? $this->ai->streamResponse($payload, $onDelta)
+                : $this->ai->createResponse($payload);
             $usage = OpenAIClient::usage($res);
             UsageLog::record($userId, $action, (string) $payload['model'], $usage['input'], $usage['output']);
             try {

@@ -165,17 +165,37 @@
             }).catch(function (err) { restore(); showError(err.message); });
     });
 
+    function paintApproach(answer, streaming) {
+        ui.approach.textContent = '';
+        ui.approach.appendChild(App.el('div', { 'class': 'answer-title' }, [App.el('h2', { text: 'Suggested approach' })]));
+        ui.approach.appendChild(R.renderAnswer(answer));
+        ui.approach.hidden = false;
+        if (streaming) { ui.approach.setAttribute('data-streaming', ''); } else { ui.approach.removeAttribute('data-streaming'); }
+    }
+
     function showApproach() {
         var restore = App.busy(ui.hint, 'Preparing…');
-        App.api('api/generate-answer.php', { json: { session_id: S.sessionId, question_id: S.question.question_id, mode: 'auto', source: 'typed' }, timeout: 70000 })
-            .then(function (d) {
-                restore();
-                ui.approach.textContent = '';
-                ui.approach.appendChild(App.el('div', { 'class': 'answer-title' }, [App.el('h2', { text: 'Suggested approach' })]));
-                ui.approach.appendChild(R.renderAnswer(d.answer));
-                ui.approach.hidden = false;
-                ui.next.hidden = false;
-            }).catch(function (e) { restore(); showError(e.message); });
+        var body = { session_id: S.sessionId, question_id: S.question.question_id, mode: 'auto', source: 'typed' };
+        var streamed = '', frame = null, finished = false;
+        var onStream = function (name, data) {
+            if (name !== 'delta') { return; }
+            streamed += data.t || '';
+            if (frame) { return; }
+            frame = (window.requestAnimationFrame || setTimeout)(function () {
+                frame = null;
+                var p = App.parsePartialJson(streamed);
+                if (!finished && p && p.is_question === true && (p.key_message || (p.sections && p.sections.length))) { paintApproach(p, true); }
+            });
+        };
+        var call = App.canStream()
+            ? App.apiStream('api/generate-answer.php', body, onStream, 90000)
+            : App.api('api/generate-answer.php', { json: body, timeout: 70000 });
+        call.then(function (d) {
+            finished = true;
+            restore();
+            paintApproach(d.answer, false);
+            ui.next.hidden = false;
+        }).catch(function (e) { finished = true; restore(); showError(e.message); });
     }
 
     ui.start.addEventListener('click', startSession);

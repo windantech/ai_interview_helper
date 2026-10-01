@@ -156,10 +156,28 @@
 
         ui.aCard.hidden = false;
         ui.aCard.textContent = '';
-        ui.aCard.appendChild(App.el('div', { 'class': 'answer-title' }, [App.el('h2', { text: 'Answer approach' })]));
+        ui.aCard.removeAttribute('data-streaming');
+        ui.aCard.appendChild(App.el('div', { 'class': 'answer-title' }, [App.el('h2', { text: 'Suggested approach' })]));
         ui.aCard.appendChild(R.renderAnswer(a));
         ui.actions.hidden = false;
         ui.root.classList.add('has-result');
+    }
+
+    /** Render a partially streamed answer (called at most once per animation frame). */
+    function renderPartial(p) {
+        if (!p || p.is_question !== true) { return; }
+        if (typeof p.question === 'string' && p.question.length > 8) {
+            ui.qCard.removeAttribute('data-detected');
+            ui.qLabel.textContent = 'Question';
+            ui.qText.textContent = p.question;
+        }
+        if (!p.key_message && !(p.sections && p.sections.length) && !(p.points && p.points.length)) { return; }
+        ui.placeholder.hidden = true;
+        ui.aCard.hidden = false;
+        ui.aCard.setAttribute('data-streaming', '');
+        ui.aCard.textContent = '';
+        ui.aCard.appendChild(App.el('div', { 'class': 'answer-title' }, [App.el('h2', { text: 'Suggested approach' })]));
+        ui.aCard.appendChild(R.renderAnswer(p));
     }
 
     function clearResult() {
@@ -228,7 +246,7 @@
             onTick: onTick,
             autoStop: cfg.autoDetect,
             autoCommit: cfg.autoDetect,
-            silenceMs: 1500,
+            silenceMs: 1200,
             maxMs: 120000,
             maxBytes: cfg.maxAudioBytes,
             sessionId: function () { return S.sessionId; },
@@ -401,10 +419,24 @@
         var body = { session_id: S.sessionId, transcript: text, mode: S.mode, source: source };
         if (questionId) { body.question_id = questionId; }
 
+        var streamed = '';
+        var frame = null;
+        var onStream = function (name, data) {
+            if (name !== 'delta') { return; }
+            streamed += data.t || '';
+            if (frame) { return; }
+            frame = (window.requestAnimationFrame || setTimeout)(function () {
+                frame = null;
+                if (S.processing) { renderPartial(App.parsePartialJson(streamed)); }
+            });
+        };
+
         return ensureSession().then(function (sid) {
             body.session_id = sid;
             if (S.state !== 'processing') { setState('processing', 'Processing...', 'AI is preparing your answer...'); }
-            return App.api('api/generate-answer.php', { json: body, timeout: 70000 });
+            return App.canStream()
+                ? App.apiStream('api/generate-answer.php', body, onStream, 90000)
+                : App.api('api/generate-answer.php', { json: body, timeout: 70000 });
         }).then(function (d) {
             S.processing = false;
             if (!d.is_question) {

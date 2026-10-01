@@ -94,6 +94,8 @@ check('question displayed', q.includes('difficult team member'), q);
 const ans = await page.$eval('#answer-card', (e) => e.innerText);
 check('STAR sections rendered', ['SITUATION', 'TASK', 'ACTION', 'RESULT'].every((s) => ans.toUpperCase().includes(s)), ans.slice(0, 200));
 check('CV evidence + closing + keywords rendered', ['FROM YOUR CV', 'CLOSE WITH', 'KEYWORDS'].every((s) => ans.toUpperCase().includes(s)));
+check('[fill-in] gaps highlighted for the candidate', (await page.$$('#answer-card mark.fill-in')).length > 0);
+check('answer lines are full spoken sentences', ans.includes('I held a private one-to-one'));
 check('mic indicator off after answer', await page.$eval('#mic-indicator', (e) => e.hidden));
 const qTop = await page.$eval('#question-card', (e) => e.getBoundingClientRect().top + window.scrollY);
 const micTop = await page.$eval('#listen-card', (e) => e.getBoundingClientRect().top + window.scrollY);

@@ -54,6 +54,23 @@ if ($auth !== 'Bearer sk-test-key') {
 
 function responseWith(string $text, array $usage = ['input_tokens' => 1200, 'output_tokens' => 180]): void
 {
+    global $json;
+    if (!empty($json['stream'])) {
+        // Server-Sent Events, mirroring the Responses API streaming format.
+        http_response_code(200);
+        header('Content-Type: text/event-stream');
+        $ev = function (array $e): void { echo 'event: ' . $e['type'] . "\ndata: " . json_encode($e) . "\n\n"; @flush(); };
+        $ev(['type' => 'response.created', 'response' => ['id' => 'resp_s', 'status' => 'in_progress']]);
+        foreach (mb_str_split($text, 24) as $chunk) {
+            $ev(['type' => 'response.output_text.delta', 'item_id' => 'msg_1', 'output_index' => 0, 'content_index' => 0, 'delta' => $chunk]);
+        }
+        $ev(['type' => 'response.completed', 'response' => [
+            'id' => 'resp_s', 'object' => 'response', 'status' => 'completed',
+            'output' => [['type' => 'message', 'role' => 'assistant', 'content' => [['type' => 'output_text', 'text' => $text, 'annotations' => []]]]],
+            'usage' => $usage + ['total_tokens' => array_sum($usage)],
+        ]]);
+        exit;
+    }
     out(200, [
         'id' => 'resp_' . bin2hex(random_bytes(4)), 'object' => 'response', 'status' => 'completed',
         'output' => [['type' => 'message', 'role' => 'assistant', 'content' => [['type' => 'output_text', 'text' => $text, 'annotations' => []]]]],
@@ -133,12 +150,12 @@ if ($method === 'POST' && $route === '/responses') {
                 'question_type' => 'behavioural',
                 'answer_mode' => $quick ? 'quick' : 'star',
                 'key_message' => 'Show you address performance issues early while supporting improvement.',
-                'points' => ['Pick the Acme Build team example.', 'Focus on your actions.', 'Quantify the result.'],
+                'points' => ['I dealt with it early and privately.', 'I agreed clear milestones with them.', 'The project was delivered on time.'],
                 'sections' => $quick ? [] : [
-                    ['label' => 'Situation', 'bullets' => ['Team member repeatedly missed deadlines on depot upgrade.']],
-                    ['label' => 'Task', 'bullets' => ['Improve delivery without hurting morale.']],
-                    ['label' => 'Action', 'bullets' => ['Held a private one-to-one.', 'Agreed milestones and weekly check-ins.']],
-                    ['label' => 'Result', 'bullets' => ['Project delivered on time.']],
+                    ['label' => 'Situation', 'bullets' => ['On the depot upgrade, one team member kept missing agreed deadlines.']],
+                    ['label' => 'Task', 'bullets' => ['I needed to fix delivery without hurting team morale.']],
+                    ['label' => 'Action', 'bullets' => ['I held a private one-to-one to understand what was blocking them.', 'We agreed clear milestones and weekly check-ins, and one defect I fixed was [the defect].']],
+                    ['label' => 'Result', 'bullets' => ['Their delivery improved and the project finished on time.']],
                 ],
                 'cv_evidence' => ['Managed 12-person team at Acme Build'],
                 'evidence_note' => '',

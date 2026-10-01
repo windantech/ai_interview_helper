@@ -266,6 +266,20 @@ $r = $c->api('api/generate-answer.php', ['session_id' => $sid, 'transcript' => '
 check('Q2: second question answered', ($r['json']['data']['is_question'] ?? false) === true);
 check('Q2: previous question sent as context', str_contains(json_encode(lastMock('/responses')['json']), 'EARLIER QUESTIONS') && str_contains(json_encode(lastMock('/responses')['json']), 'difficult team member'));
 
+$t0 = microtime(true);
+$r = $c->req('POST', 'api/generate-answer.php', ['json' => ['session_id' => $sid, 'transcript' => 'Why do you want to work here?', 'mode' => 'auto', 'source' => 'live', 'stream' => true]]);
+preg_match_all('/^event: (\w+)\ndata: (.*)$/m', $r['body'], $ev, PREG_SET_ORDER);
+$names = array_column($ev, 1);
+$doneEv = null;
+foreach ($ev as $e) { if ($e[1] === 'done') { $doneEv = json_decode($e[2], true); } }
+$deltaText = implode('', array_map(fn ($e) => json_decode($e[2], true)['t'] ?? '', array_filter($ev, fn ($e) => $e[1] === 'delta')));
+check('streaming: SSE content type', str_contains($r['head'], 'text/event-stream'));
+check('streaming: start → many deltas → done', ($names[0] ?? '') === 'start' && count(array_keys($names, 'delta')) > 3 && end($names) === 'done', implode(',', array_unique($names)));
+check('streaming: deltas rebuild the model JSON', is_array(json_decode($deltaText, true)));
+check('streaming: done carries validated + saved answer', ($doneEv['is_question'] ?? false) === true && (int) ($doneEv['question_id'] ?? 0) > 0 && !empty($doneEv['answer']['sections']));
+check('streaming: OpenAI called with stream=true', (lastMock('/responses')['json']['stream'] ?? false) === true);
+pdo()->exec('DELETE FROM interview_questions WHERE id = ' . (int) ($doneEv['question_id'] ?? 0));
+
 $n = count(mockCalls());
 $r = $c->api('api/generate-answer.php', ['session_id' => $sid, 'transcript' => 'Okay, thank you very much.', 'source' => 'live']);
 check('small talk ignored without calling OpenAI', ($r['json']['data']['is_question'] ?? null) === false && count(mockCalls()) === $n);
@@ -282,6 +296,8 @@ $r = $c->api('api/end-session.php', ['session_id' => $sid]);
 check('end session', $r['status'] === 200 && $r['json']['data']['questions'] === 2);
 $r = $c->api('api/generate-answer.php', ['session_id' => $sid, 'transcript' => 'Why this role?', 'source' => 'typed']);
 check('cannot add questions to ended session → 409', $r['status'] === 409);
+$r = $c->req('POST', 'api/generate-answer.php', ['json' => ['session_id' => $sid, 'transcript' => 'Why this role?', 'source' => 'typed', 'stream' => true]]);
+check('streaming request on ended session → plain JSON 409', $r['status'] === 409 && ($r['json']['success'] ?? true) === false);
 
 // =================================================================== HISTORY
 section('History');

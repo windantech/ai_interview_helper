@@ -38,7 +38,7 @@ A mobile-first PHP + MySQL web app that listens to an interviewer's question, tr
   - **Question detection:** small talk ("Okay, thank you very much.") and company background are ignored, and the app keeps listening. A question split by a pause is joined back together.
   - **Answer modes:** Auto, Quick, STAR, Technical and Leadership. Auto picks the structure from the question type (13 types).
   - **CV evidence vs. approach:** facts from your CV are shown separately from the suggested approach, and the model is instructed never to invent experience.
-  - The transcript is shown first, then "Preparing answer…", then the answer.
+  - The transcript is shown first, then the answer **streams in section by section** while it is written. Every line is a complete first-person sentence you can read aloud; job keywords are bold and any `[fill-in]` gaps are highlighted.
   - **Type question instead** uses the same pipeline. You can ask several questions per session, change the answer mode to regenerate, copy the answer, or end the interview.
 - **History:** sessions with date, job, company, question count and duration. You can search and filter by job, date or type, open a session to see every Q&A, and delete one session or all history.
 - **Practice mode:** the AI asks tailored questions one at a time. Speak or type your answer, or skip. You get a score, strengths, missing points, a better structure and an improved example answer. "Show approach" shows the suggested answer for that question.
@@ -61,7 +61,7 @@ transcript ──POST /api/generate-answer.php─▶ profile + job + recent Qs �
 (fallback) MediaRecorder WebM/M4A ──POST /api/transcribe.php─▶ ─────────────────▶ POST /v1/audio/transcriptions (gpt-transcribe)
 ```
 
-The OpenAI endpoints, the model names (`gpt-live-transcribe`, `gpt-transcribe`) and the Realtime commit flow were checked against the current OpenAI docs at developers.openai.com while this was built. `gpt-live-transcribe` sessions use `turn_detection: null`, so the browser decides when the question has ended. It commits the turn after about 1.5 s of silence, or when you tap **Stop**.
+The OpenAI endpoints, the model names (`gpt-live-transcribe`, `gpt-transcribe`) and the Realtime commit flow were checked against the current OpenAI docs at developers.openai.com while this was built. `gpt-live-transcribe` sessions use `turn_detection: null`, so the browser decides when the question has ended. It commits the turn after about 1.2 s of silence, or when you tap **Stop**.
 
 ## Requirements
 
@@ -221,7 +221,7 @@ All endpoints require a signed-in session. POST requests require the `X-CSRF-Tok
 |---|---|---|---|
 | `api/realtime-session.php` | POST | — | Returns `{client_secret, expires_at, model, calls_url}` |
 | `api/transcribe.php` | POST multipart | `audio`, `session_id` | webm/wav/mp3/m4a, validated with finfo |
-| `api/generate-answer.php` | POST JSON | `session_id, transcript, mode, source[, question_id]` | Returns `{is_question, question, answer, question_id}` |
+| `api/generate-answer.php` | POST JSON | `session_id, transcript, mode, source[, question_id, stream]` | Returns `{is_question, question, answer, question_id}`. With `stream:true` it replies with Server-Sent Events: `delta` text chunks, then `done` |
 | `api/start-session.php` / `end-session.php` | POST JSON | `job_id, type` / `session_id` | `type`: live or practice |
 | `api/upload-cv.php` / `delete-cv.php` / `reprocess-cv.php` | POST | multipart `cv` / — | |
 | `api/cv-profile.php` | GET | — | CV metadata + extracted profile |
@@ -266,8 +266,8 @@ Answer JSON returned by `generate-answer`:
 The automated suites run in Docker (MySQL 8.4 + PHP 8.3 + a mock OpenAI server), so they never touch your real database, your `storage/` folder or your OpenAI account:
 
 ```bash
-bash tests/run-all.sh        # 75 unit + 128 end-to-end HTTP tests
-bash tests/run-browser.sh    # 29 headless-Chromium checks: responsive sweep + fake-microphone interview flow
+bash tests/run-all.sh        # 80 unit + 134 end-to-end HTTP tests
+bash tests/run-browser.sh    # 31 headless-Chromium checks: responsive sweep + fake-microphone interview flow
 ```
 
 Coverage includes:
@@ -295,13 +295,14 @@ The PHP unit tests also run without Docker: `php tests/run.php`.
 | CV upload fails with "too large" below 10 MB | Raise `upload_max_filesize` / `post_max_size` in the PHP settings (see `.user.ini`). |
 | "Your session has expired. Please refresh" | The CSRF token expired. Reload the page. |
 | 403 on every page under Apache | `AllowOverride All` must be enabled for the directory, or remove unsupported directives from `.htaccess`. |
+| Answers appear all at once instead of streaming | A proxy is buffering the response. The app sends `X-Accel-Buffering: no` and `X-LiteSpeed-Cache-Control: no-cache`; make sure LSCache isn't caching `/api/`. Answers still work, just without the progressive display. |
 | Blank page | Set `APP_ENV=development` temporarily and check `storage/logs/app-YYYY-MM-DD.log` and `storage/logs/php-errors.log`. |
 | Reset emails not arriving | Set `MAIL_ENABLED=true` and a `MAIL_FROM` address on your domain. Many hosts reject other From domains. |
 
 ## Known limitations
 
 - Live transcription depends on WebRTC access to `api.openai.com`. Some corporate firewalls block it, and the app then falls back to recorded mode.
-- The end of a question is detected locally from silence (about 1.5 s). Very long pauses mid-question may split it. The app re-joins the pieces within 15 s, and you can always tap **Stop** yourself.
+- The end of a question is detected locally from silence (about 1.2 s). Very long pauses mid-question may split it. The app re-joins the pieces within 15 s, and you can always tap **Stop** yourself.
 - Password-reset email uses PHP `mail()`. For reliable delivery, configure your host's mail or swap `App\Services\Mailer` for an SMTP provider.
 - CV analysis runs synchronously during upload, which takes about 5–30 s depending on the model and CV length.
 - Legacy `.doc` files are parsed on a best-effort basis locally, otherwise via OpenAI file input. DOCX or PDF give the best results.

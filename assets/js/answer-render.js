@@ -13,14 +13,39 @@
     };
     var MODE_LABELS = { quick: 'Quick', star: 'STAR', technical: 'Technical', leadership: 'Leadership', general: 'General', auto: 'Auto' };
 
-    function list(items, cls) {
+    function list(items, cls, keywords) {
         var ul = el('ul', cls ? { 'class': cls } : null);
-        (items || []).forEach(function (t) { ul.appendChild(el('li', { text: t })); });
+        (items || []).forEach(function (t) {
+            if (typeof t !== 'string' || !t) { return; }
+            ul.appendChild(keywords ? rich('li', t, keywords) : el('li', { text: t }));
+        });
         return ul;
     }
 
-    /** Build the answer DOM. */
+    function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
+    /** Text with job keywords in bold and [fill-in] gaps highlighted — built from text nodes only (no innerHTML). */
+    function rich(tag, text, keywords) {
+        var node = el(tag);
+        var parts = ['\\[[^\\]]{1,60}\\]'];
+        (keywords || []).forEach(function (k) {
+            if (typeof k === 'string' && k.length > 2) { parts.push('\\b' + escapeRe(k) + '\\b'); }
+        });
+        var re = new RegExp('(' + parts.join('|') + ')', 'gi');
+        var last = 0, m;
+        while ((m = re.exec(text)) !== null) {
+            if (m.index > last) { node.appendChild(document.createTextNode(text.slice(last, m.index))); }
+            node.appendChild(m[0].charAt(0) === '[' ? el('mark', { 'class': 'fill-in', text: m[0] }) : el('strong', { text: m[0] }));
+            last = m.index + m[0].length;
+        }
+        if (last < text.length) { node.appendChild(document.createTextNode(text.slice(last))); }
+        return node;
+    }
+
+    /** Build the answer DOM. Also used for partially-streamed answers, so every field is optional. */
     function renderAnswer(a) {
+        a = a || {};
+        var kw = Array.isArray(a.keywords) ? a.keywords : [];
         var root = el('div', { 'class': 'answer' });
         if (a.key_message) {
             root.appendChild(el('div', { 'class': 'key-message' }, [
@@ -28,16 +53,17 @@
                 el('p', { text: a.key_message })
             ]));
         }
-        if (a.sections && a.sections.length) {
+        if (Array.isArray(a.sections) && a.sections.length) {
             var secs = el('div', { 'class': 'answer-sections' });
             a.sections.forEach(function (s) {
-                secs.appendChild(el('div', { 'class': 'answer-section' }, [el('h3', { text: s.label }), list(s.bullets)]));
+                if (!s || typeof s.label !== 'string') { return; }
+                secs.appendChild(el('div', { 'class': 'answer-section' }, [el('h3', { text: s.label }), list(s.bullets, null, kw)]));
             });
             root.appendChild(secs);
-        } else if (a.points && a.points.length) {
-            root.appendChild(list(a.points, 'answer-points'));
+        } else if (Array.isArray(a.points) && a.points.length && (a.answer_mode === 'quick' || !('sections' in a) || a.sections.length === 0)) {
+            root.appendChild(list(a.points, 'answer-points', kw));
         }
-        if (a.cv_evidence && a.cv_evidence.length) {
+        if (Array.isArray(a.cv_evidence) && a.cv_evidence.length) {
             root.appendChild(el('div', { 'class': 'evidence' }, [
                 el('p', { 'class': 'answer-label', text: 'From your CV' }),
                 list(a.cv_evidence)
@@ -49,10 +75,10 @@
         if (a.closing_line) {
             root.appendChild(el('div', { 'class': 'closing' }, [
                 el('p', { 'class': 'answer-label', text: 'Close with' }),
-                el('p', { text: '“' + a.closing_line + '”' })
+                rich('p', '“' + a.closing_line + '”', kw)
             ]));
         }
-        if (a.keywords && a.keywords.length) {
+        if (kw.length) {
             var chips = el('div', { 'class': 'chip-row' });
             a.keywords.forEach(function (k) { chips.appendChild(el('span', { 'class': 'chip chip-key', text: k })); });
             root.appendChild(el('div', { 'class': 'keywords' }, [el('p', { 'class': 'answer-label', text: 'Keywords' }), chips]));
@@ -75,7 +101,7 @@
             (a.points || []).forEach(function (p) { out.push('• ' + p); });
             out.push('');
         }
-        if (a.cv_evidence && a.cv_evidence.length) {
+        if (Array.isArray(a.cv_evidence) && a.cv_evidence.length) {
             out.push('FROM YOUR CV');
             a.cv_evidence.forEach(function (p) { out.push('• ' + p); });
             out.push('');

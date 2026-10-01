@@ -45,6 +45,118 @@ final class OpenAIClient
     }
 
     /**
+     * POST /responses with "stream": true. Calls $onDelta for every text delta
+     * (response.output_text.delta) as it arrives and returns the final response object
+     * from response.completed, so callers can parse/validate exactly as for createResponse().
+     * @param array<string,mixed> $payload
+     * @param callable(string):void $onDelta
+     * @return array<string,mixed>
+     */
+    public function streamResponse(array $payload, callable $onDelta, ?int $timeout = null): array
+    {
+        if (!$this->isConfigured()) {
+            throw new OpenAIException(503, 'The AI service is not configured yet. Please add an OpenAI API key to the server .env file.', 'not_configured');
+        }
+        $payload['stream'] = true;
+        $buffer = '';
+        $errorBody = '';
+        $text = '';
+        $final = null;
+        $streamError = null;
+        $status = 0;
+
+        $handleEvent = function (string $block) use (&$text, &$final, &$streamError, $onDelta): void {
+            $data = '';
+            foreach (explode("\n", $block) as $line) {
+                if (str_starts_with($line, 'data:')) {
+                    $data .= ltrim(substr($line, 5));
+                }
+            }
+            if ($data === '' || $data === '[DONE]') {
+                return;
+            }
+            $ev = json_decode($data, true);
+            if (!is_array($ev)) {
+                return;
+            }
+            switch ($ev['type'] ?? '') {
+                case 'response.output_text.delta':
+                    $d = (string) ($ev['delta'] ?? '');
+                    $text .= $d;
+                    if ($d !== '') {
+                        $onDelta($d);
+                    }
+                    break;
+                case 'response.completed':
+                case 'response.incomplete':
+                    $final = is_array($ev['response'] ?? null) ? $ev['response'] : [];
+                    break;
+                case 'response.failed':
+                case 'error':
+                    $streamError = (string) ($ev['error']['message'] ?? $ev['response']['error']['message'] ?? $ev['message'] ?? 'stream error');
+                    break;
+            }
+        };
+
+        $ch = curl_init($this->baseUrl . '/responses');
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE),
+            CURLOPT_HTTPHEADER     => array_merge($this->baseHeaders('text/event-stream'), ['Content-Type: application/json']),
+            CURLOPT_CONNECTTIMEOUT => $this->connectTimeout,
+            CURLOPT_TIMEOUT        => $timeout ?? $this->timeout,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_WRITEFUNCTION  => function ($ch, string $chunk) use (&$buffer, &$errorBody, &$status, $handleEvent): int {
+                if ($status === 0) {
+                    $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+                }
+                if ($status >= 300) {
+                    $errorBody .= $chunk;
+                    return strlen($chunk);
+                }
+                $buffer .= str_replace("\r\n", "\n", $chunk);
+                while (($pos = strpos($buffer, "\n\n")) !== false) {
+                    $handleEvent(substr($buffer, 0, $pos));
+                    $buffer = substr($buffer, $pos + 2);
+                }
+                return strlen($chunk);
+            },
+        ]);
+        $started = microtime(true);
+        $ok = curl_exec($ch);
+        $errno = curl_errno($ch);
+        $status = $status ?: (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+        unset($ch);
+        $ms = (int) round((microtime(true) - $started) * 1000);
+        if (trim($buffer) !== '') {
+            $handleEvent($buffer);
+        }
+
+        if ($status >= 300) {
+            throw $this->httpError($status, json_decode($errorBody, true), '/responses (stream)', $ms);
+        }
+        if ($ok === false || $errno !== 0) {
+            if ($errno === CURLE_OPERATION_TIMEDOUT) {
+                Logger::error('OpenAI stream timeout', ['ms' => $ms]);
+                throw new OpenAIException(504, 'The AI service took too long to respond. Please try again.', 'timeout');
+            }
+            Logger::error('OpenAI stream network error', ['errno' => $errno]);
+            throw new OpenAIException(502, 'Could not reach the AI service. Please check your connection and try again.', 'network');
+        }
+        if ($streamError !== null) {
+            Logger::error('OpenAI stream error event', ['message' => mb_substr($streamError, 0, 300)]);
+            throw new OpenAIException(502, 'The AI service failed while writing the answer. Please try again.', 'server');
+        }
+        $final ??= [];
+        // Make sure callers always see the streamed text, even if the final event omits output.
+        if (empty($final['output']) && $text !== '') {
+            $final['output_text'] = $text;
+        }
+        return $final;
+    }
+
+    /**
      * POST /audio/transcriptions (multipart).
      * @return array{text:string,usage:array<string,mixed>|null}
      */
@@ -187,16 +299,23 @@ final class OpenAIClient
         }
     }
 
-    /** @return array<string,mixed> */
-    private function send(string $method, string $path, ?array $json, ?array $multipart, int $timeout): array
+    /** @return list<string> */
+    private function baseHeaders(string $accept = 'application/json'): array
     {
-        $headers = ['Authorization: Bearer ' . $this->apiKey, 'Accept: application/json'];
+        $headers = ['Authorization: Bearer ' . $this->apiKey, 'Accept: ' . $accept];
         if (config('openai.organization')) {
             $headers[] = 'OpenAI-Organization: ' . config('openai.organization');
         }
         if (config('openai.project')) {
             $headers[] = 'OpenAI-Project: ' . config('openai.project');
         }
+        return $headers;
+    }
+
+    /** @return array<string,mixed> */
+    private function send(string $method, string $path, ?array $json, ?array $multipart, int $timeout): array
+    {
+        $headers = $this->baseHeaders();
 
         $ch = curl_init($this->baseUrl . $path);
         $opts = [
@@ -244,11 +363,17 @@ final class OpenAIClient
             return $data;
         }
 
+        throw $this->httpError($status, $data, $path, $ms);
+    }
+
+    /** Map a non-2xx OpenAI response to a user-safe OpenAIException. */
+    private function httpError(int $status, mixed $data, string $path, int $ms): OpenAIException
+    {
         $apiMessage = is_array($data) ? (string) ($data['error']['message'] ?? '') : '';
         $apiCode = is_array($data) ? (string) ($data['error']['code'] ?? $data['error']['type'] ?? '') : '';
         Logger::error('OpenAI HTTP error', ['path' => $path, 'status' => $status, 'code' => $apiCode, 'message' => mb_substr($apiMessage, 0, 300), 'ms' => $ms]);
 
-        throw match (true) {
+        return match (true) {
             $status === 401 => new OpenAIException(503, 'The AI service rejected the server API key. Please check OPENAI_API_KEY.', 'auth', $status),
             $status === 403 => new OpenAIException(503, 'The server API key is not permitted to use this AI feature or model.', 'forbidden', $status),
             $status === 429 && in_array($apiCode, ['insufficient_quota', 'billing_hard_limit_reached'], true)

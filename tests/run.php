@@ -149,6 +149,7 @@ check('session history included', str_contains($ptext, 'Earlier Q'));
 check('store disabled', $payload['store'] === false);
 check('strict structured output requested', $payload['text']['format']['strict'] === true && $payload['text']['format']['type'] === 'json_schema');
 check('no-CV context forbids invention', str_contains(InterviewService::candidateContext(null), 'never invent'));
+check('prompt asks for speakable first-person sentences, no coaching instructions', str_contains($payload['instructions'], 'say exactly as written') && str_contains($payload['instructions'], 'NEVER be instructions'));
 check('system prompt contains anti-fabrication rule', str_contains(json_encode($payload['instructions']), 'Never invent employment history'));
 
 // ---------------------------------------------------------------- Upload validation
@@ -254,6 +255,16 @@ if ($mock) {
         }
         return false;
     })());
+    $deltas = [];
+    $final = (new OpenAIClient('sk-test-key', "$mock/v1"))->streamResponse($resp, function (string $d) use (&$deltas) { $deltas[] = $d; });
+    check('streaming: many deltas forwarded as they arrive', count($deltas) > 3);
+    check('streaming: deltas join into the final JSON', json_decode(implode('', $deltas), true) !== null && implode('', $deltas) === OpenAIClient::outputText($final));
+    check('streaming: usage available from response.completed', OpenAIClient::usage($final)['input'] === 1200);
+    $skind = function (string $base) use ($mock, $resp): string {
+        try { (new OpenAIClient('sk-test-key', "$mock/$base"))->streamResponse($resp, fn () => null); return 'ok'; }
+        catch (OpenAIException $e) { return $e->kind(); }
+    };
+    check('streaming errors mapped (401/quota/500)', $skind('err401') === 'auth' && $skind('quota') === 'quota' && $skind('err500') === 'server');
     check('realtime client secret minted', str_starts_with((new OpenAIClient('sk-test-key', "$mock/v1"))->createRealtimeSession(['type' => 'transcription', 'audio' => ['input' => ['transcription' => ['model' => 'gpt-live-transcribe'], 'turn_detection' => null]]])['value'], 'ek_'));
 }
 

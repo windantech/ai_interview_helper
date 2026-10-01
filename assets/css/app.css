@@ -543,6 +543,10 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .answer-card .answer-title { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .75rem; }
 .answer-card .answer-title h2 { margin: 0; font-size: .8125rem; letter-spacing: .1em; text-transform: uppercase; color: var(--primary-600); }
 .answer { display: grid; gap: .9rem; }
+.answer-section strong, .answer-points strong, .closing strong { color: var(--primary-600); font-weight: 700; }
+.fill-in { background: var(--warning-50); color: var(--warning); border: 1px dashed #F59E0B; border-radius: 4px; padding: 0 .2em; font-weight: 600; }
+.answer-card[data-streaming] .answer-section:last-child li:last-child::after,
+#p-approach[data-streaming] .answer-section:last-child li:last-child::after { content: "▍"; color: var(--primary); animation: blink 1s steps(2) infinite; margin-left: 1px; }
 .key-message { background: var(--primary-50); border: 1px solid var(--primary-100); border-radius: var(--radius); padding: .75rem .9rem; }
 .key-message p:last-child { margin: 0; font-weight: 700; color: var(--dark); font-size: 1.0625rem; line-height: 1.4; }
 .answer-sections { display: grid; gap: .75rem; }
