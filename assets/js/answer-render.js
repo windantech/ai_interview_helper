@@ -125,6 +125,9 @@
         block('Strengths', f.strengths, 'fb-good');
         block('Missing points', f.missing_points, 'fb-miss');
         block('Better structure', f.better_structure);
+        block('Delivery', f.delivery_tips);
+        block('Filler words', f.filler_words, 'fb-miss');
+        block('Possibly mis-heard (slow down slightly here)', f.possible_mishears);
         if (f.improved_answer) {
             root.appendChild(el('div', { 'class': 'fb-block' }, [el('h3', { text: 'Example improved answer' }), el('p', { 'class': 'pre-line', text: f.improved_answer })]));
         }

@@ -59,6 +59,59 @@ final class InterviewService
         return !in_array($stripped, $pleasantries, true);
     }
 
+    // ================================================================ transcription vocabulary
+
+    /**
+     * Names and terms the speech-to-text model should expect (projects, tools, employers, certifications,
+     * job title/company/skills). Helps it hear "Eval360" instead of "Harvard 360".
+     */
+    public static function vocabularyHint(int $userId, ?array $job, int $maxChars = 600): string
+    {
+        $terms = [];
+        $profile = CV::profile(CV::forUser($userId));
+        if ($profile) {
+            foreach ($profile['projects'] ?? [] as $p) { $terms[] = $p['name'] ?? ''; }
+            foreach ($profile['roles'] ?? [] as $r) { $terms[] = $r['employer'] ?? ''; }
+            $terms = array_merge($terms, $profile['tools'] ?? [], $profile['certifications'] ?? [], array_slice($profile['skills'] ?? [], 0, 15));
+        }
+        if ($job) {
+            $terms[] = $job['company'] ?? '';
+            $terms[] = $job['title'] ?? '';
+            $terms = array_merge($terms, array_map('trim', explode(',', (string) ($job['main_skills'] ?? ''))));
+            $summary = !empty($job['jd_summary_json']) ? json_decode((string) $job['jd_summary_json'], true) : null;
+            if (is_array($summary)) {
+                $terms = array_merge($terms, $summary['tools'] ?? [], array_slice($summary['required_skills'] ?? [], 0, 8));
+            }
+        }
+        $seen = [];
+        $out = '';
+        foreach ($terms as $t) {
+            $t = trim(preg_replace('/\s+/', ' ', (string) $t) ?? '');
+            $key = mb_strtolower($t);
+            if ($t === '' || mb_strlen($t) > 40 || isset($seen[$key])) {
+                continue;
+            }
+            if (mb_strlen($out) + mb_strlen($t) + 2 > $maxChars) {
+                break;
+            }
+            $seen[$key] = true;
+            $out .= ($out === '' ? '' : ', ') . $t;
+        }
+        return $out;
+    }
+
+    /** Full transcription prompt for a session: who is speaking + expected vocabulary. */
+    public static function transcriptionPrompt(int $userId, ?array $session): string
+    {
+        $job = !empty($session['job_id']) ? Database::fetch('SELECT * FROM jobs WHERE id = ? AND user_id = ?', [(int) $session['job_id'], $userId]) : null;
+        $role = $session['job_title'] ?? null;
+        $lead = ($session['session_type'] ?? 'live') === 'practice'
+            ? 'A candidate answering a job interview question' . ($role ? " for the role of $role" : '') . '.'
+            : 'A job interview' . ($role ? " for the role of $role" : '') . (!empty($session['company']) ? ' at ' . $session['company'] : '') . '. The interviewer asks a question.';
+        $vocab = self::vocabularyHint($userId, $job);
+        return $vocab === '' ? $lead : $lead . ' Names and terms that may be mentioned: ' . $vocab . '.';
+    }
+
     // ================================================================ answer generation
 
     /**
@@ -200,18 +253,23 @@ final class InterviewService
 
     private static function modeInstruction(string $mode): string
     {
+        $technical = 'sections exactly: "Approach" (ONE sentence naming the 3-4 areas you will cover, e.g. "I would approach this by isolating the regression, finding the bottleneck, fixing it and validating the result."), '
+            . '"Key points" (3-4 sentences, one per area, opening with "First,", "Second,", "Third," / "Finally,"; precise technical terms), '
+            . '"From my experience" (one concrete example from the CV: "I applied this in <real project>, where I…" plus what it taught me), '
+            . '"Validation" (how I would confirm it works: tests, monitoring, metrics).';
         return match ($mode) {
-            'quick'      => 'answer_mode="quick". Put 3-5 spoken sentences in points, in the order to say them. sections must be [].',
-            'star'       => 'answer_mode="star". sections exactly: Situation, Task, Action, Result. points = 2-3 headline bullets.',
-            'technical'  => 'answer_mode="technical". sections exactly: Concept, Steps, Example, Conclusion. points = 2-3 headline bullets.',
-            'leadership' => 'answer_mode="leadership". sections exactly: Challenge, Decision, Action, People, Result. points = 2-3 headline bullets.',
+            'quick'      => 'answer_mode="quick". Put 3-5 spoken sentences in points, in the order to say them: approach first, the key points, one real example, a closing line. sections must be [].',
+            'star'       => 'answer_mode="star". sections exactly: Situation, Task, Action, Result. Use ONE real example from the CV. Action has 2-3 sentences opening with "First,", "Then," / "Finally,". points = 2-3 summary sentences.',
+            'technical'  => 'answer_mode="technical". ' . $technical . ' points = 2-3 summary sentences.',
+            'leadership' => 'answer_mode="leadership". sections exactly: "Approach" (one sentence), "Challenge", "Decision", "People", "Result" — anchored in ONE real example from the CV. points = 2-3 summary sentences.',
             default      => 'AUTO: classify the question and choose the structure: '
-                . 'behavioural/competency → answer_mode "star" with sections Situation, Task, Action, Result; '
-                . 'technical/problem_solving → answer_mode "technical" with sections Concept, Approach, Practical example, Risk / consideration, Conclusion; '
-                . 'leadership/management → answer_mode "leadership" with sections Context, Leadership decision, Action, People management, Outcome, Lesson; '
-                . 'situational → "star" (use a real past example if the CV has one, otherwise describe the approach); '
+                . 'technical/problem_solving → answer_mode "technical" with ' . $technical . ' '
+                . 'Pick the framework that fits: system design = architecture, security, scalability, observability; '
+                . 'debugging/incident = reproduce, measure, isolate, fix, validate; code review = correctness, security, maintainability, tests. '
+                . 'behavioural/competency/situational → answer_mode "star" (Situation, Task, Action, Result) using ONE real CV example; '
+                . 'leadership/management → answer_mode "leadership" (Approach, Challenge, Decision, People, Result); '
                 . 'everything else (motivation, career_history, salary_hr, communication, general) → answer_mode "general" with sections Direct answer, Supporting point, Evidence, Conclusion. '
-                . 'points = 2-3 headline bullets.',
+                . 'points = 2-3 summary sentences.',
         };
     }
 
@@ -285,6 +343,14 @@ Process:
    - evidence_note: if the CV has no relevant evidence, one short sentence saying so and what kind of example to use; otherwise "".
    - closing_line: one natural spoken sentence to end the answer, linking back to the role.
    - keywords: 3-6 single words or short phrases to emphasise (prefer job-description vocabulary).
+5. SPEAKING STYLE — make it sound deliberate and senior:
+   - Open with the approach before any detail. Think in groups of 3-4 points and signpost them ("First,", "Second,", "Finally,").
+   - Make each point once. Never repeat an idea or a phrase across sections; move to the next layer instead.
+   - No filler: never start with "So", and do not use "whereby", "maybe", "that is", "basically", "kind of", "you know".
+   - Be precise with technical terms. Say "slow-query logs, execution plans, lock contention and connection-pool saturation", not "check database waits".
+   - Include exactly ONE concrete example from the CV, by name, with what it taught the candidate ("I applied this in Eval360, where I designed RBAC and tenant-aware data structures. That taught me to treat tenant isolation as an architectural concern.").
+   - Finish with how the result would be validated or what the outcome was.
+   - Short sentences with a natural pause between points, easy to read aloud at a calm pace.
 No markdown, no emojis, no long sentences.
 TXT;
 
@@ -547,25 +613,36 @@ TXT;
         $payload = [
             'model' => (string) config('openai.answer_model'),
             'store' => false,
-            'instructions' => "You are a supportive but honest interview coach. Evaluate the candidate's answer to the question for the target role. "
-                . "Be specific and brief. The improved answer must only use facts from the candidate's answer or CV profile — never invent experience or numbers; use [placeholders] where a metric would help.",
+            'instructions' => "You are a supportive but honest interview coach. Evaluate the candidate's spoken answer (a speech transcript) to the question for the target role. Be specific and brief; quote short phrases from the answer as evidence.\n"
+                . "Assess these speaking habits:\n"
+                . "1. Repetition: ideas or phrases said more than once instead of moving to the next layer.\n"
+                . "2. Pace/clarity: garbled or merged phrases in the transcript usually mean the candidate spoke too fast; list them in possible_mishears with what was probably meant, and suggest a brief pause between points.\n"
+                . "3. Approach first: did they open with their overall approach before details?\n"
+                . "4. Structure: did they group points in 3-4 (e.g. debugging: reproduce, measure, isolate, fix, validate; system design: architecture, security, scalability, observability; code review: correctness, security, maintainability, tests)?\n"
+                . "5. One concrete example from their CV, named, with what it taught them.\n"
+                . "6. Filler words (So, whereby, maybe, that is, basically, kind of, you know): list the ones used with counts, e.g. \"So (×4)\".\n"
+                . "7. Precise technical terminology instead of vague wording.\n"
+                . "The improved answer must follow that format (approach → 3-4 signposted points → one real CV example → validation), be natural to say aloud, and only use facts from the candidate's answer or CV profile — never invent experience or numbers; use [placeholders] where a detail is needed.",
             'input' => [['role' => 'user', 'content' => [
                 ['type' => 'input_text', 'text' => "## CANDIDATE PROFILE\n" . self::candidateContext($cv) . "\n\n## TARGET ROLE\n" . self::jobContext($job)],
                 ['type' => 'input_text', 'text' => "## QUESTION\n$question\n\n## CANDIDATE'S ANSWER (transcribed)\n\"\"\"\n" . mb_substr($answerText, 0, 6000) . "\n\"\"\""],
             ]]],
             'text' => ['format' => ['type' => 'json_schema', 'name' => 'practice_feedback', 'strict' => true, 'schema' => [
                 'type' => 'object', 'additionalProperties' => false,
-                'required' => ['score', 'summary', 'strengths', 'missing_points', 'better_structure', 'improved_answer'],
+                'required' => ['score', 'summary', 'strengths', 'missing_points', 'better_structure', 'delivery_tips', 'filler_words', 'possible_mishears', 'improved_answer'],
                 'properties' => [
                     'score' => ['type' => 'integer', 'description' => '1-10 overall'],
                     'summary' => ['type' => 'string'],
                     'strengths' => $strArr,
                     'missing_points' => $strArr,
                     'better_structure' => $strArr,
+                    'delivery_tips' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Up to 4 tips on repetition, pace, opening with the approach, precision — each with a short "instead of X, say Y" where useful'],
+                    'filler_words' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Filler words used, with counts, e.g. "So (×4)"'],
+                    'possible_mishears' => ['type' => 'array', 'items' => ['type' => 'string'], 'description' => 'Garbled transcript phrases and the likely intended words, e.g. "Harvard 360" → probably "Eval360"'],
                     'improved_answer' => ['type' => 'string', 'description' => 'Spoken-style improved answer, max ~150 words'],
                 ],
             ]]],
-            'max_output_tokens' => 1400,
+            'max_output_tokens' => 2000,
         ];
         $this->applyReasoning($payload);
 
@@ -580,6 +657,9 @@ TXT;
                 'strengths'        => $l($d['strengths'] ?? []),
                 'missing_points'   => $l($d['missing_points'] ?? []),
                 'better_structure' => $l($d['better_structure'] ?? []),
+                'delivery_tips'    => $l($d['delivery_tips'] ?? []),
+                'filler_words'     => $l($d['filler_words'] ?? []),
+                'possible_mishears'=> $l($d['possible_mishears'] ?? []),
                 'improved_answer'  => mb_substr(trim((string) $d['improved_answer']), 0, 1500),
             ];
         });

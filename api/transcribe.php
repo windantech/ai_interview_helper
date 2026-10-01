@@ -32,12 +32,10 @@ Api::handle(function (): void {
 
     $valid = FileUploadService::validate($_FILES['audio'] ?? null, FileUploadService::AUDIO_TYPES, (int) config('app.max_audio_size_bytes'), 'recording');
 
-    // Optional context hint to improve accuracy for role-specific vocabulary.
-    $prompt = 'An interviewer asking a job interview question.';
+    // Who is speaking + names/terms from the CV and job, so e.g. "Eval360" isn't heard as "Harvard 360".
     $sessionId = (int) ($_POST['session_id'] ?? 0);
-    if ($sessionId > 0 && ($s = InterviewSession::findForUser($sessionId, (int) $user['id'])) && $s['job_title']) {
-        $prompt = 'A job interview for the role of ' . $s['job_title'] . ($s['company'] ? ' at ' . $s['company'] : '') . '. The interviewer asks a question.';
-    }
+    $s = $sessionId > 0 ? InterviewSession::findForUser($sessionId, (int) $user['id']) : null;
+    $prompt = InterviewService::transcriptionPrompt((int) $user['id'], $s);
 
     $dir = rtrim((string) config('app.storage_path'), '/') . '/audio';
     $path = FileUploadService::store($valid['tmp'], $dir, FileUploadService::randomName($valid['ext']));

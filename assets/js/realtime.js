@@ -58,7 +58,8 @@
         }
         this._emit('connecting');
         var micP = window.AudioCapture.getMicrophone();
-        var tokenP = window.App.api('api/realtime-session.php', { json: {}, timeout: 20000 });
+        var sid = typeof this.opts.sessionId === 'function' ? this.opts.sessionId() : this.opts.sessionId;
+        var tokenP = window.App.api('api/realtime-session.php', { json: { session_id: sid || null }, timeout: 20000 });
 
         return Promise.all([micP, tokenP.catch(function (e) { return { __error: e }; })]).then(function (res) {
             self.stream = res[0];

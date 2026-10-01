@@ -166,7 +166,7 @@ if ($method === 'POST' && $route === '/responses') {
             $n = substr_count($text, "\n- ");
             responseWith(json_encode(['question' => 'Practice question #' . ($n + 1) . ': Describe a project that went off track.', 'question_type' => 'behavioural', 'why_asked' => 'Tests recovery skills.', 'tip' => 'Use STAR.']));
         case 'practice_feedback':
-            responseWith(json_encode(['score' => 7, 'summary' => 'Good structure.', 'strengths' => ['Clear situation'], 'missing_points' => ['No result'], 'better_structure' => ['Add the result'], 'improved_answer' => 'At Acme Build I ... [result].']));
+            responseWith(json_encode(['score' => 7, 'summary' => 'Good structure.', 'strengths' => ['Clear situation'], 'missing_points' => ['No result'], 'better_structure' => ['Add the result'], 'delivery_tips' => ['Instead of "so I would", say "I would".'], 'filler_words' => ['So (×3)'], 'possible_mishears' => ['"Harvard 360" → probably "Eval360"'], 'improved_answer' => 'At Acme Build I ... [result].']));
     }
     apiError(400, 'Unknown schema ' . ($format['name'] ?? ''));
 }

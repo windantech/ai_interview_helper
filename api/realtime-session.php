@@ -15,6 +15,8 @@ use App\Core\Api;
 use App\Core\HttpException;
 use App\Core\RateLimiter;
 use App\Core\Response;
+use App\Models\InterviewSession;
+use App\Services\InterviewService;
 use App\Services\OpenAIClient;
 use App\Services\OpenAIException;
 
@@ -36,6 +38,10 @@ Api::handle(function (): void {
     if ($language !== '') {
         $transcription['language'] = $language;
     }
+    // Expected vocabulary (CV projects/tools/employers + job terms) to reduce mis-heard names.
+    $in = Api::input();
+    $interview = !empty($in['session_id']) ? InterviewSession::findForUser((int) $in['session_id'], (int) $user['id']) : null;
+    $transcription['prompt'] = InterviewService::transcriptionPrompt((int) $user['id'], $interview);
     $session = [
         'type'  => 'transcription',
         'audio' => ['input' => [

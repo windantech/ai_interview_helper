@@ -18,6 +18,9 @@ $list = function (string $title, array $items, string $cls = ''): void {
     <?php $list('Strengths', $f['strengths'] ?? [], 'fb-good'); ?>
     <?php $list('Missing points', $f['missing_points'] ?? [], 'fb-miss'); ?>
     <?php $list('Better structure', $f['better_structure'] ?? []); ?>
+    <?php $list('Delivery', $f['delivery_tips'] ?? []); ?>
+    <?php $list('Filler words', $f['filler_words'] ?? [], 'fb-miss'); ?>
+    <?php $list('Possibly mis-heard (slow down slightly here)', $f['possible_mishears'] ?? []); ?>
     <?php if (!empty($f['improved_answer'])): ?>
         <div class="fb-block"><h3>Example improved answer</h3><p class="pre-line"><?= e($f['improved_answer']) ?></p></div>
     <?php endif; ?>

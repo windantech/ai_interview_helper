@@ -36,13 +36,13 @@ A mobile-first PHP + MySQL web app that listens to an interviewer's question, tr
   - **Live transcription:** OpenAI Realtime (`gpt-live-transcribe`) over WebRTC, using a short-lived ephemeral key.
   - **Automatic fallback** to recorded mode (MediaRecorder → `gpt-transcribe`) if live transcription is unavailable.
   - **Question detection:** small talk ("Okay, thank you very much.") and company background are ignored, and the app keeps listening. A question split by a pause is joined back together.
-  - **Answer modes:** Auto, Quick, STAR, Technical and Leadership. Auto picks the structure from the question type (13 types).
+  - **Answer modes:** Auto, Quick, STAR, Technical and Leadership. Answers follow a senior speaking format: open with the approach, 3–4 signposted points ("First… Second… Finally…"), one named example from your CV and how you'd validate it, with no repetition or filler words. Technical questions use a fitting framework (debugging: reproduce → measure → isolate → fix → validate; system design: architecture → security → scalability → observability; code review: correctness → security → maintainability → tests). Auto picks the structure from the question type (13 types).
   - **CV evidence vs. approach:** facts from your CV are shown separately from the suggested approach, and the model is instructed never to invent experience.
   - The transcript is shown first, then the answer **streams in section by section** while it is written. Every line is a complete first-person sentence you can read aloud; job keywords are bold and any `[fill-in]` gaps are highlighted.
   - **Your instructions for this interview:** an optional panel where you tell the AI what to use, e.g. *"When asked for a sample project, use finKAP — I built the loan module and integrated M-Pesa."* They are sent with every question, can be edited mid-interview, are carried over to your next interview for the same job, and are shown in History.
   - **Type question instead** uses the same pipeline. You can ask several questions per session, change the answer mode to regenerate, copy the answer, or end the interview.
 - **History:** sessions with date, job, company, question count and duration. You can search and filter by job, date or type, open a session to see every Q&A, and delete one session or all history.
-- **Practice mode:** the AI asks tailored questions one at a time. Speak or type your answer, or skip. You get a score, strengths, missing points, a better structure and an improved example answer. "Show approach" shows the suggested answer for that question.
+- **Practice mode:** the AI asks tailored questions one at a time. Speak or type your answer, or skip. You get a score, strengths, missing points, a better structure, delivery tips (repetition, opening with your approach, precision), the filler words you used with counts, likely mis-heard phrases (a sign you're speaking too fast), and an improved example answer. "Show approach" shows the suggested answer for that question.
 - **Settings:** profile, password, default answer style, short/medium detail, default interview type, transcription mode, auto-detect, show transcript, save history, AI usage and estimated cost, and deleting your CV, your history or your account (which removes all rows and files).
 - **Privacy & Terms pages**, a consent dialog before the microphone is first used, and a visible "Microphone on" indicator whenever it is.
 
@@ -276,7 +276,7 @@ Answer JSON returned by `generate-answer`:
 The automated suites run in Docker (MySQL 8.4 + PHP 8.3 + a mock OpenAI server), so they never touch your real database, your `storage/` folder or your OpenAI account:
 
 ```bash
-bash tests/run-all.sh        # 82 unit + 143 end-to-end HTTP tests
+bash tests/run-all.sh        # 84 unit + 146 end-to-end HTTP tests
 bash tests/run-browser.sh    # 33 headless-Chromium checks: responsive sweep + fake-microphone interview flow
 ```
 

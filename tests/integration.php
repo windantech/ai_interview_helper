@@ -239,12 +239,14 @@ check('job description analysed once (JD summary cached)', pdo()->query("SELECT 
 $r = $c->api('api/realtime-session.php', []);
 check('realtime: ephemeral key returned', $r['status'] === 200 && str_starts_with($r['json']['data']['client_secret'] ?? '', 'ek_'), $r['body']);
 check('realtime: permanent key NOT returned', !str_contains($r['body'], 'sk-test-key'));
+check('realtime: vocabulary hint sent with live transcription', str_contains(lastMock('/realtime/client_secrets')['json']['session']['audio']['input']['transcription']['prompt'] ?? '', 'PRINCE2'));
 $rt = lastMock('/realtime/client_secrets');
 check('realtime: transcription session w/ gpt-live-transcribe, turn_detection null', ($rt['json']['session']['audio']['input']['transcription']['model'] ?? '') === 'gpt-live-transcribe' && array_key_exists('turn_detection', $rt['json']['session']['audio']['input']));
 
 $r = $c->upload('api/transcribe.php', 'audio', $wav, 'question.wav', ['session_id' => (string) $sid]);
 check('fallback transcription (WAV) → transcript', $r['status'] === 200 && str_contains($r['json']['data']['transcript'] ?? '', 'difficult team member'), $r['body']);
 $tm = lastMock('/audio/transcriptions');
+check('transcription prompt carries CV/job vocabulary', str_contains($tm['post']['prompt'] ?? '', 'Acme Build') && str_contains($tm['post']['prompt'] ?? '', 'Senior Project Manager II'), $tm['post']['prompt'] ?? '');
 check('transcription uses gpt-transcribe + file', ($tm['post']['model'] ?? '') === 'gpt-transcribe' && isset($tm['files']['file']));
 check('temporary audio deleted after transcription', count(glob("$STORAGE/audio/*.wav")) === 0);
 $r = $c->upload('api/transcribe.php', 'audio', $cvTxt, 'question.webm');
@@ -336,6 +338,7 @@ check('practice questions generated one at a time', ($r1['json']['data']['number
 check('previous practice questions excluded from next prompt', str_contains(json_encode(lastMock('/responses')['json']), 'Already asked'));
 $pq = (int) $r1['json']['data']['question_id'];
 $r = $c->api('api/practice-feedback.php', ['question_id' => $pq, 'answer_text' => 'At Acme Build I led the depot upgrade when it slipped two weeks behind schedule.']);
+check('practice feedback includes delivery, filler words and likely mis-hears', !empty($r['json']['data']['feedback']['filler_words']) && !empty($r['json']['data']['feedback']['possible_mishears']) && !empty($r['json']['data']['feedback']['delivery_tips']));
 check('practice feedback (strengths, missing points, improved answer)', ($r['json']['data']['feedback']['score'] ?? 0) === 7 && !empty($r['json']['data']['feedback']['improved_answer']));
 $r = $c->api('api/generate-answer.php', ['session_id' => $psid, 'question_id' => $pq, 'mode' => 'auto', 'source' => 'typed']);
 check('practice "show approach" uses the same pipeline', ($r['json']['data']['is_question'] ?? false) === true);
