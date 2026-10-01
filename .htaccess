@@ -1,0 +1,57 @@
+# =====================================================================
+# AI Interview Copilot — Apache / cPanel configuration
+# =====================================================================
+
+Options -Indexes -MultiViews
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Force HTTPS (microphone access requires a secure context). Uncomment on production:
+    # RewriteCond %{HTTPS} !=on
+    # RewriteCond %{HTTP:X-Forwarded-Proto} !=https
+    # RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # Allow ACME/AutoSSL certificate validation
+    RewriteRule ^\.well-known/acme-challenge/ - [L]
+
+    # Block private directories and files
+    RewriteRule ^(app|config|database|storage|views|tests|vendor)(/|$) - [F,L]
+    RewriteRule (^|/)\. - [F,L]
+    RewriteRule ^(composer\.(json|lock)|README\.md|router\.php|\.env.*)$ - [F,L]
+</IfModule>
+
+# Fallback protection if mod_rewrite is unavailable
+<FilesMatch "^\.|\.(env|sql|md|lock|log|ini|sh)$|^composer\.json$|^router\.php$">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order allow,deny
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# Upload limits (CV max 10 MB, audio max 20 MB) — mod_php only; on PHP-FPM use .user.ini
+<IfModule mod_php.c>
+    php_value upload_max_filesize 25M
+    php_value post_max_size 26M
+    php_value max_execution_time 180
+    php_flag display_errors Off
+    php_flag expose_php Off
+</IfModule>
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header unset X-Powered-By
+    <FilesMatch "\.(css|js|svg|woff2?)$">
+        Header set Cache-Control "public, max-age=604800"
+    </FilesMatch>
+</IfModule>
+
+<IfModule mod_mime.c>
+    AddType image/svg+xml .svg
+    AddType application/javascript .js
+</IfModule>

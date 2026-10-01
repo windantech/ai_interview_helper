@@ -1,0 +1,16 @@
+.env
+/vendor/
+/storage/users/*
+!/storage/users/.gitkeep
+!/storage/users/.htaccess
+/storage/audio/*
+!/storage/audio/.gitkeep
+/storage/logs/*
+!/storage/logs/.gitkeep
+/storage/cache/*
+!/storage/cache/.gitkeep
+.DS_Store
+.idea/
+.vscode/
+*.log
+/tests/browser/out/

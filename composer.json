@@ -1,0 +1,31 @@
+{
+    "name": "windan/ai-interview-copilot",
+    "description": "AI Interview Copilot - CV-aware live interview answer guidance (PHP + MySQL + OpenAI).",
+    "type": "project",
+    "license": "proprietary",
+    "require": {
+        "php": ">=8.2",
+        "ext-pdo": "*",
+        "ext-pdo_mysql": "*",
+        "ext-curl": "*",
+        "ext-fileinfo": "*",
+        "ext-mbstring": "*",
+        "ext-json": "*"
+    },
+    "suggest": {
+        "ext-zip": "Enables local text extraction from DOCX CVs (OpenAI is used otherwise)."
+    },
+    "autoload": {
+        "psr-4": {
+            "App\\": "app/"
+        }
+    },
+    "scripts": {
+        "lint": "find . -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l",
+        "test": "php tests/run.php"
+    },
+    "config": {
+        "optimize-autoloader": true,
+        "sort-packages": true
+    }
+}
