@@ -65,6 +65,7 @@
         prefix: null,                  // {text, at} previous non-question speech (for split questions)
         noSpeechTimer: null,
         liveFailed: false,
+        instructions: cfg.instructions || '',
         manualStop: false
     };
 
@@ -225,13 +226,61 @@
     function ensureSession() {
         if (S.sessionId) { return Promise.resolve(S.sessionId); }
         setState('connecting', 'Preparing interview…', 'Setting up your session and analysing the job description.');
-        return App.api('api/start-session.php', { json: { job_id: S.jobId, type: 'live' }, timeout: 60000 }).then(function (d) {
+        syncInstructionsFromBox();
+        return App.api('api/start-session.php', { json: { job_id: S.jobId, type: 'live', instructions: S.instructions }, timeout: 60000 }).then(function (d) {
             S.sessionId = d.session.id;
             S.questions = [];
             renderSessionList();
             showSessionActive(true);
             return S.sessionId;
         });
+    }
+
+    // ================================================================ interview instructions
+
+    var ins = {
+        card: $('instructions-card'), form: $('ins-form'), text: $('ins-text'), save: $('ins-save'),
+        badge: $('ins-badge'), preview: $('ins-preview'), count: $('ins-count'), hint: $('ins-hint')
+    };
+    var insSaved = S.instructions;
+
+    function syncInstructionsFromBox() {
+        if (ins.text) { S.instructions = ins.text.value.trim(); }
+    }
+
+    function paintInstructions() {
+        var t = S.instructions;
+        ins.badge.hidden = !t;
+        ins.preview.textContent = t ? (t.replace(/\s+/g, ' ').slice(0, 90) + (t.length > 90 ? '…' : '')) : 'Optional — tell the AI which examples to use';
+        ins.count.textContent = ins.text.value.length + ' / ' + (cfg.maxInstructions || 2000);
+    }
+
+    /** Save to the active session (or keep locally until the session starts). */
+    function saveInstructions(quiet) {
+        syncInstructionsFromBox();
+        if (S.instructions === insSaved) { paintInstructions(); return Promise.resolve(); }
+        if (!S.sessionId) {
+            insSaved = S.instructions;
+            paintInstructions();
+            if (!quiet) { App.toast('Instructions saved — they will be used when the interview starts.', 'success'); }
+            return Promise.resolve();
+        }
+        var restore = quiet ? function () {} : App.busy(ins.save, 'Saving…');
+        return App.api('api/session-instructions.php', { json: { session_id: S.sessionId, instructions: S.instructions } })
+            .then(function () {
+                restore();
+                insSaved = S.instructions;
+                paintInstructions();
+                if (!quiet) { App.toast('Instructions saved for this interview.', 'success'); }
+            })
+            .catch(function (e) { restore(); App.toast(e.message, 'error'); });
+    }
+
+    if (ins.form) {
+        ins.form.addEventListener('submit', function (e) { e.preventDefault(); saveInstructions(false); });
+        ins.text.addEventListener('input', function () { ins.count.textContent = ins.text.value.length + ' / ' + (cfg.maxInstructions || 2000); });
+        ins.text.addEventListener('blur', function () { saveInstructions(true); });
+        paintInstructions();
     }
 
     // ================================================================ listening
@@ -431,7 +480,8 @@
             });
         };
 
-        return ensureSession().then(function (sid) {
+        var pendingIns = ins.text && ins.text.value.trim() !== insSaved ? saveInstructions(true) : Promise.resolve();
+        return pendingIns.then(ensureSession).then(function (sid) {
             body.session_id = sid;
             if (S.state !== 'processing') { setState('processing', 'Processing...', 'AI is preparing your answer...'); }
             return App.canStream()

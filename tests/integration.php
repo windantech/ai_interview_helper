@@ -230,8 +230,9 @@ section('Interview session');
 $r = $c->get('interview.php');
 check('interview page renders', $r['status'] === 200 && str_contains($r['body'], 'mic-btn') && noPhpErrors($r['body']));
 check('API key never present in HTML', !str_contains($r['body'], 'sk-test-key'));
-$r = $c->api('api/start-session.php', ['job_id' => $jobId, 'type' => 'live']);
+$r = $c->api('api/start-session.php', ['job_id' => $jobId, 'type' => 'live', 'instructions' => "When asked for a sample project, use the depot upgrade.\nKeep salary answers open."]);
 $sid = (int) ($r['json']['data']['session']['id'] ?? 0);
+check('session starts with interview instructions', str_contains($r['json']['data']['session']['instructions'] ?? '', 'depot upgrade'));
 check('start session → 201', $r['status'] === 201 && $sid > 0, $r['body']);
 check('job description analysed once (JD summary cached)', pdo()->query("SELECT jd_summary_json IS NOT NULL FROM jobs WHERE id = $jobId")->fetchColumn() == 1);
 
@@ -261,6 +262,16 @@ $reqText = json_encode($req);
 check('prompt includes compact CV profile + JD summary', str_contains($reqText, 'Alex Morgan') && str_contains($reqText, 'Job description analysis'));
 check('model configured from .env (answer model)', $req['model'] === 'gpt-6-luna');
 $q1 = (int) $a['question_id'];
+check('instructions sent with the question', str_contains($reqText, "OWN INSTRUCTIONS FOR THIS INTERVIEW") && str_contains($reqText, 'use the depot upgrade'));
+$r = $c->api('api/session-instructions.php', ['session_id' => $sid, 'instructions' => 'Use the finKAP platform as my sample project.']);
+check('instructions updated mid-interview', $r['status'] === 200);
+$c->api('api/generate-answer.php', ['session_id' => $sid, 'transcript' => 'Tell me about a project you are proud of?', 'source' => 'typed']);
+check('next question uses the updated instructions', str_contains(json_encode(lastMock('/responses')['json']), 'finKAP') && !str_contains(json_encode(lastMock('/responses')['json']), 'use the depot upgrade'));
+pdo()->exec("DELETE FROM interview_questions WHERE session_id = $sid AND question LIKE '%proud of%'");
+$r = $c->api('api/session-instructions.php', ['session_id' => $sid, 'instructions' => str_repeat('x', 2001)]);
+check('over-long instructions rejected (422)', $r['status'] === 422);
+$r = $c->get('interview.php');
+check('interview page shows saved instructions', str_contains($r['body'], 'Use the finKAP platform as my sample project.'));
 
 $r = $c->api('api/generate-answer.php', ['session_id' => $sid, 'transcript' => 'How do you deal with difficult stakeholders?', 'mode' => 'auto', 'source' => 'live']);
 check('Q2: second question answered', ($r['json']['data']['is_question'] ?? false) === true);
@@ -312,6 +323,7 @@ check('search with no results shows empty state', str_contains($r['body'], 'No s
 $r = $c->get("history.php?job_id=$jobId&from=" . gmdate('Y-m-d') . '&to=' . gmdate('Y-m-d'));
 check('filter by job + date', str_contains($r['body'], 'Senior Project Manager II'));
 $r = $c->get("history.php?id=$sid");
+check('history shows the instructions used', str_contains($r['body'], 'Use the finKAP platform as my sample project.'));
 check('session page shows questions + answers', str_contains($r['body'], 'Question 1') && str_contains($r['body'], 'Close with') && noPhpErrors($r['body']));
 
 // =================================================================== PRACTICE
@@ -339,6 +351,7 @@ $s = pdo()->query("SELECT * FROM user_settings WHERE user_id = $uid")->fetch(PDO
 check('preferences persisted', $s['default_answer_mode'] === 'star' && $s['response_detail'] === 'medium' && (int) $s['save_history'] === 0);
 $r = $c->api('api/start-session.php', ['job_id' => $jobId]);
 $sid2 = (int) $r['json']['data']['session']['id'];
+check('next interview for same job carries instructions over', ($r['json']['data']['session']['instructions'] ?? '') === 'Use the finKAP platform as my sample project.');
 $r = $c->api('api/generate-answer.php', ['session_id' => $sid2, 'transcript' => 'Why do you want this job?', 'source' => 'typed']);
 check('history disabled → answer not stored', ($r['json']['data']['saved'] ?? true) === false && (int) pdo()->query("SELECT COUNT(*) FROM interview_questions WHERE session_id = $sid2")->fetchColumn() === 0);
 check('medium detail → larger token budget', lastMock('/responses')['json']['max_output_tokens'] === 1500);
@@ -355,6 +368,7 @@ check("other user can't delete job", $other->api('api/delete-job.php', ['id' => 
 check("other user can't use session for answers", $other->api('api/generate-answer.php', ['session_id' => $sid2, 'transcript' => 'Why?'])['status'] === 404);
 $od = $other->get('api/cv-profile.php')['json']['data'] ?? [];
 check("other user gets no CV", array_key_exists('cv', $od) && $od['cv'] === null);
+check("other user can't change instructions", $other->api('api/session-instructions.php', ['session_id' => $sid2, 'instructions' => 'hack'])['status'] === 404);
 
 // =================================================================== DELETE DATA
 section('Deleting data');

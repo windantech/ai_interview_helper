@@ -39,6 +39,7 @@ A mobile-first PHP + MySQL web app that listens to an interviewer's question, tr
   - **Answer modes:** Auto, Quick, STAR, Technical and Leadership. Auto picks the structure from the question type (13 types).
   - **CV evidence vs. approach:** facts from your CV are shown separately from the suggested approach, and the model is instructed never to invent experience.
   - The transcript is shown first, then the answer **streams in section by section** while it is written. Every line is a complete first-person sentence you can read aloud; job keywords are bold and any `[fill-in]` gaps are highlighted.
+  - **Your instructions for this interview:** an optional panel where you tell the AI what to use, e.g. *"When asked for a sample project, use finKAP — I built the loan module and integrated M-Pesa."* They are sent with every question, can be edited mid-interview, are carried over to your next interview for the same job, and are shown in History.
   - **Type question instead** uses the same pipeline. You can ask several questions per session, change the answer mode to regenerate, copy the answer, or end the interview.
 - **History:** sessions with date, job, company, question count and duration. You can search and filter by job, date or type, open a session to see every Q&A, and delete one session or all history.
 - **Practice mode:** the AI asks tailored questions one at a time. Speak or type your answer, or skip. You get a score, strengths, missing points, a better structure and an improved example answer. "Show approach" shows the suggested answer for that question.
@@ -102,6 +103,14 @@ mysql -u root -p interview_copilot < database/demo-data.sql
 ```
 
 You can also click **Add sample job** on the Jobs page. No users or passwords are created by any SQL file.
+
+### Upgrading an existing install
+
+If your database was created before a feature was added, run the files in `database/migrations/` once, in date order (or paste them into phpMyAdmin → SQL):
+
+```bash
+mysql -u USER -p DBNAME < database/migrations/2026_10_01_add_session_instructions.sql
+```
 
 ### Run it
 
@@ -229,6 +238,7 @@ All endpoints require a signed-in session. POST requests require the `X-CSRF-Tok
 | `api/history.php` | GET | `?q=&job_id=&from=&to=&page=` or `?id=` | |
 | `api/delete-session.php` | POST JSON | `session_id` or `all:true` | |
 | `api/practice-question.php` / `practice-feedback.php` | POST JSON | `session_id, focus` / `question_id, answer_text` | |
+| `api/session-instructions.php` | POST JSON | `session_id, instructions` | Your own instructions for the interview (max 2000 chars) |
 | `api/preferences.php` | POST JSON | `default_answer_mode`, `transcription_mode`, `mic_consent` | |
 
 Answer JSON returned by `generate-answer`:
@@ -266,8 +276,8 @@ Answer JSON returned by `generate-answer`:
 The automated suites run in Docker (MySQL 8.4 + PHP 8.3 + a mock OpenAI server), so they never touch your real database, your `storage/` folder or your OpenAI account:
 
 ```bash
-bash tests/run-all.sh        # 80 unit + 134 end-to-end HTTP tests
-bash tests/run-browser.sh    # 31 headless-Chromium checks: responsive sweep + fake-microphone interview flow
+bash tests/run-all.sh        # 82 unit + 143 end-to-end HTTP tests
+bash tests/run-browser.sh    # 33 headless-Chromium checks: responsive sweep + fake-microphone interview flow
 ```
 
 Coverage includes:

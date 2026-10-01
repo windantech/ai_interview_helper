@@ -3,7 +3,8 @@
 declare(strict_types=1);
 
 /*
- * POST /api/start-session.php  JSON: {job_id?, type: live|practice}
+ * POST /api/start-session.php  JSON: {job_id?, type: live|practice, instructions?}
+ * If "instructions" is omitted, the instructions from the user's last interview for the same job are carried over.
  */
 
 define('API_REQUEST', true);
@@ -35,8 +36,17 @@ Api::handle(function (): void {
     // Analyse the job description once (cached) so each question sends a compact summary.
     $job = (new InterviewService())->ensureJobSummary($userId, $job);
 
+    if (array_key_exists('instructions', $in)) {
+        $instructions = is_string($in['instructions']) ? $in['instructions'] : null;
+        if ($instructions !== null && mb_strlen(trim($instructions)) > InterviewSession::MAX_INSTRUCTIONS) {
+            throw new HttpException(422, 'Instructions are too long (max ' . InterviewSession::MAX_INSTRUCTIONS . ' characters).');
+        }
+    } else {
+        $instructions = InterviewSession::lastInstructions($userId, $job ? (int) $job['id'] : null);
+    }
+
     InterviewSession::endActive($userId, $type);
-    $id = InterviewSession::create($userId, $job, $type);
+    $id = InterviewSession::create($userId, $job, $type, $instructions);
     $session = InterviewSession::findForUser($id, $userId);
 
     Response::success([
@@ -45,6 +55,7 @@ Api::handle(function (): void {
             'title'      => $session['title'],
             'job_title'  => $session['job_title'],
             'company'    => $session['company'],
+            'instructions' => $session['instructions'],
             'type'       => $type,
             'started_at' => $session['started_at'],
         ],

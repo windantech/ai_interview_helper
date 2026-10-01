@@ -69,6 +69,13 @@ check('job saved via form', jobHtml.includes('Senior Project Manager') && jobHtm
 // ------------------------------------------------------------------ interview flow with fake mic
 section('Interview: Listen → (live attempt → fallback) → transcript → answer');
 await page.goto(`${BASE}/interview.php`, { waitUntil: 'networkidle0' });
+// Interview instructions: open the panel, write, save (before the session exists)
+await tap(page, '#instructions-card summary');
+await page.type('#ins-text', 'When asked for a sample project, use the depot upgrade.');
+await tap(page, '#ins-save');
+await page.waitForFunction(() => !document.getElementById('ins-badge').hidden, { timeout: 5000 }).catch(() => {});
+check('instructions panel saves and shows "On"', await page.$eval('#ins-badge', (e) => !e.hidden));
+await tap(page, '#instructions-card summary'); // collapse again
 const micBox = await (await page.$('#mic-btn')).boundingBox();
 check('mic button ≥ 70px', micBox.width >= 70 && micBox.height >= 70, JSON.stringify(micBox));
 await tap(page, '#mic-btn');
@@ -101,6 +108,9 @@ const qTop = await page.$eval('#question-card', (e) => e.getBoundingClientRect()
 const micTop = await page.$eval('#listen-card', (e) => e.getBoundingClientRect().top + window.scrollY);
 check('mobile: question appears above the mic panel once answered', qTop < micTop, `q=${qTop} mic=${micTop}`);
 await page.screenshot({ path: `${OUT}/interview-answer-390.png`, fullPage: true });
+
+await page.reload({ waitUntil: 'networkidle0' });
+check('instructions stored on the interview session', (await page.$eval('#ins-text', (e) => e.value)).includes('use the depot upgrade'));
 
 // typed question uses the same pipeline
 section('Typed question + answer modes');

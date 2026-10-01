@@ -1,7 +1,7 @@
 <?php
 /**
  * @var array $jobs @var array|null $job @var array|null $cv @var array $settings
- * @var array|null $session @var array $questions @var array $config
+ * @var array|null $session @var array $questions @var array $config @var string $instructions
  */
 $cfg = [
     'sessionId'        => $session ? (int) $session['id'] : null,
@@ -14,6 +14,8 @@ $cfg = [
     'consented'        => $settings['mic_consent_at'] !== null,
     'realtimeEnabled'  => $config['realtimeEnabled'],
     'maxAudioBytes'    => $config['maxAudioBytes'],
+    'instructions'     => $instructions,
+    'maxInstructions'  => \App\Models\InterviewSession::MAX_INSTRUCTIONS,
     'questions'        => array_map(fn ($q) => ['id' => (int) $q['id'], 'question' => $q['question'], 'answer' => $q['answer']], $questions),
 ];
 $modes = options_for('answer_mode');
@@ -50,6 +52,24 @@ $modes = options_for('answer_mode');
             </span>
         </div>
     <?php endif; ?>
+
+    <details class="card instructions-card" id="instructions-card">
+        <summary>
+            <span class="ins-title"><?= icon('edit') ?> Your instructions for this interview</span>
+            <span class="badge badge-primary" id="ins-badge" <?= $instructions === '' ? 'hidden' : '' ?>>On</span>
+            <span class="ins-preview muted" id="ins-preview"><?= e($instructions === '' ? 'Optional — tell the AI which examples to use' : mb_substr(preg_replace('/\s+/', ' ', $instructions), 0, 90) . (mb_strlen($instructions) > 90 ? '…' : '')) ?></span>
+        </summary>
+        <form id="ins-form" class="ins-form" novalidate>
+            <label for="ins-text" class="visually-hidden">Instructions for this interview</label>
+            <textarea id="ins-text" rows="4" maxlength="<?= \App\Models\InterviewSession::MAX_INSTRUCTIONS ?>"
+                placeholder="e.g. When asked for a sample project, use finKAP — I built the loan module and integrated M-Pesa Paybill.&#10;Keep salary answers open: say I'm flexible based on the full package.&#10;Mention my PRINCE2 certification when relevant."><?= e($instructions) ?></textarea>
+            <div class="ins-actions">
+                <p class="hint" id="ins-hint">Used for every question in this interview. Facts you add here can be used in answers.</p>
+                <span class="ins-count muted small" id="ins-count"></span>
+                <button type="submit" class="btn btn-primary btn-sm" id="ins-save"><?= icon('check') ?> Save instructions</button>
+            </div>
+        </form>
+    </details>
 
     <div class="iv-grid">
         <!-- ============ LEFT: microphone panel ============ -->

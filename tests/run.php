@@ -147,6 +147,9 @@ check('empty profile fields dropped', !str_contains(InterviewService::candidateC
 check('JD truncated', mb_strlen(InterviewService::jobContext($job)) < 5600);
 check('session history included', str_contains($ptext, 'Earlier Q'));
 check('store disabled', $payload['store'] === false);
+check('no instructions section when none given', !str_contains($ptext, "OWN INSTRUCTIONS"));
+$withIns = json_encode($svc->buildAnswerPayload('Tell me about a project', 'auto', 'short', $job, $cvRow, [], true, 'When asked for a sample project, use finKAP.'));
+check('interview instructions included in prompt', str_contains($withIns, "CANDIDATE'S OWN INSTRUCTIONS FOR THIS INTERVIEW") && str_contains($withIns, 'use finKAP'));
 check('strict structured output requested', $payload['text']['format']['strict'] === true && $payload['text']['format']['type'] === 'json_schema');
 check('no-CV context forbids invention', str_contains(InterviewService::candidateContext(null), 'never invent'));
 check('prompt asks for speakable first-person sentences, no coaching instructions', str_contains($payload['instructions'], 'say exactly as written') && str_contains($payload['instructions'], 'NEVER be instructions'));

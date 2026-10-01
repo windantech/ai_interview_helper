@@ -116,6 +116,7 @@ CREATE TABLE interview_sessions (
     title         VARCHAR(200) NOT NULL,
     job_title     VARCHAR(160) NULL,
     company       VARCHAR(160) NULL,
+    instructions  TEXT NULL COMMENT 'Candidate''s own instructions for this interview (sent with every question)',
     session_type  ENUM('live','practice') NOT NULL DEFAULT 'live',
     status        ENUM('active','ended') NOT NULL DEFAULT 'active',
     started_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

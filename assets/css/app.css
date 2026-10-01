@@ -424,6 +424,8 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .history-table .row-actions { justify-content: flex-start; padding-top: .5rem; }
 .pagination { display: flex; align-items: center; justify-content: center; gap: .75rem; margin-top: 1rem; }
 .qa-list { display: grid; gap: 1rem; }
+.instructions-used { margin-bottom: 1rem; border-left: 4px solid var(--primary-100); }
+.instructions-used p:last-child { margin: 0; }
 .qa-item .question-text { font-size: 1.125rem; }
 .qa-item details { margin-bottom: .75rem; }
 
@@ -459,6 +461,18 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .select-inline { width: 100%; max-width: 100%; min-width: 0; flex: 1 1 0; text-overflow: ellipsis; font-weight: 600; font-size: .9375rem; min-height: 40px; padding-top: .4rem; padding-bottom: .4rem; }
 .iv-head-actions { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
 .iv-setup { margin: 0; }
+.instructions-card { padding: 0; }
+.instructions-card summary { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .6rem; min-height: 52px; padding: .75rem 1rem; cursor: pointer; list-style: none; }
+.instructions-card summary::-webkit-details-marker { display: none; }
+.instructions-card summary::after { content: "▾"; margin-left: auto; color: var(--muted); transition: transform .15s; }
+.instructions-card[open] summary::after { transform: rotate(180deg); }
+.ins-title { display: inline-flex; align-items: center; gap: .45rem; font-weight: 700; }
+.ins-title .icon { color: var(--primary); }
+.ins-preview { flex-basis: 100%; font-size: .8125rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.instructions-card[open] .ins-preview { display: none; }
+.ins-form { display: grid; gap: .5rem; padding: 0 1rem 1rem; }
+.ins-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
+.ins-actions .hint { flex: 1 1 220px; margin: 0; }
 .iv-grid { display: grid; gap: 1rem; align-items: start; grid-template-columns: minmax(0, 1fr); }
 
 .listen-card { display: grid; gap: .75rem; padding: 1rem; }

@@ -29,6 +29,8 @@ if ($session && (int) ($session['job_id'] ?? 0) !== (int) ($job['id'] ?? 0)) {
     $session = null;
 }
 $questions = $session ? InterviewSession::questions((int) $session['id']) : [];
+// Instructions: the active session's, otherwise carried over from the last interview for this job.
+$instructions = $session ? (string) ($session['instructions'] ?? '') : (string) InterviewSession::lastInstructions($userId, $job ? (int) $job['id'] : null);
 
 View::page('pages/interview', [
     'title'     => 'Interview',
@@ -40,6 +42,7 @@ View::page('pages/interview', [
     'settings'  => $settings,
     'session'   => $session,
     'questions' => $questions,
+    'instructions' => $instructions,
     'config'    => [
         'realtimeEnabled' => (bool) config('openai.realtime_enabled'),
         'maxAudioBytes'   => (int) config('app.max_audio_size_bytes'),

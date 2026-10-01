@@ -20,6 +20,13 @@
     </div>
 </div>
 
+<?php if (!empty($session['instructions'])): ?>
+    <div class="card instructions-used">
+        <p class="answer-label"><?= icon('edit') ?> Your instructions for this interview</p>
+        <p class="pre-line"><?= e($session['instructions']) ?></p>
+    </div>
+<?php endif; ?>
+
 <?php if (!$questions): ?>
     <div class="card empty-card"><p class="muted">No questions were recorded in this session.</p></div>
 <?php endif; ?>

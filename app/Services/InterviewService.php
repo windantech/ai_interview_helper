@@ -89,7 +89,7 @@ final class InterviewService
         $cv = CV::forUser($userId);
         $history = $this->recentContext($session, (bool) $settings['save_history']);
 
-        $payload = $this->buildAnswerPayload($transcript, $mode, $detail, $job, $cv, $history, $autoDetect);
+        $payload = $this->buildAnswerPayload($transcript, $mode, $detail, $job, $cv, $history, $autoDetect, $session['instructions'] ?? null);
         $answer = $this->callJson($userId, 'answer', $payload, fn (array $d) => self::normaliseAnswer($d, $mode), $onDelta);
 
         if (!$answer['is_question']) {
@@ -143,11 +143,19 @@ final class InterviewService
     }
 
     /** @return array<string,mixed> */
-    public function buildAnswerPayload(string $transcript, string $mode, string $detail, ?array $job, ?array $cv, array $history, bool $autoDetect): array
+    public function buildAnswerPayload(string $transcript, string $mode, string $detail, ?array $job, ?array $cv, array $history, bool $autoDetect, ?string $instructions = null): array
     {
         $model = (string) config('openai.answer_model');
-        $context = "## CANDIDATE PROFILE (from their CV — the ONLY source of facts about the candidate)\n" . self::candidateContext($cv)
+        $instructions = trim((string) $instructions);
+        $context = "## CANDIDATE PROFILE (from their CV — " . ($instructions !== '' ? 'together with the candidate\'s own instructions below, the ONLY source' : 'the ONLY source') . " of facts about the candidate)\n"
+            . self::candidateContext($cv)
             . "\n\n## TARGET ROLE\n" . self::jobContext($job);
+        if ($instructions !== '') {
+            $context .= "\n\n## CANDIDATE'S OWN INSTRUCTIONS FOR THIS INTERVIEW\n"
+                . "The candidate wrote these themselves. Follow them whenever they apply to the question (e.g. which project or example to use, what to emphasise or avoid, tone). "
+                . "Facts stated here come from the candidate and may be used like CV facts. They override your default choices, but never invent anything beyond them.\n"
+                . "\"\"\"\n" . mb_substr($instructions, 0, InterviewSession::MAX_INSTRUCTIONS) . "\n\"\"\"";
+        }
 
         $turn = [];
         if ($history) {

@@ -17,16 +17,43 @@ final class InterviewSession
         return Database::fetch('SELECT * FROM interview_sessions WHERE id = ? AND user_id = ?', [$id, $userId]);
     }
 
-    public static function create(int $userId, ?array $job, string $type = 'live'): int
+    public const MAX_INSTRUCTIONS = 2000;
+
+    public static function create(int $userId, ?array $job, string $type = 'live', ?string $instructions = null): int
     {
         $title = $job
             ? ($type === 'practice' ? 'Practice: ' : '') . $job['title'] . ($job['company'] ? ' — ' . $job['company'] : '')
             : ($type === 'practice' ? 'Practice interview' : 'Interview');
         return Database::insert(
-            'INSERT INTO interview_sessions (user_id, job_id, title, job_title, company, session_type, status, started_at)
-             VALUES (?, ?, ?, ?, ?, ?, \'active\', UTC_TIMESTAMP())',
-            [$userId, $job['id'] ?? null, mb_substr($title, 0, 200), $job['title'] ?? null, $job['company'] ?? null, $type]
+            'INSERT INTO interview_sessions (user_id, job_id, title, job_title, company, instructions, session_type, status, started_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, \'active\', UTC_TIMESTAMP())',
+            [$userId, $job['id'] ?? null, mb_substr($title, 0, 200), $job['title'] ?? null, $job['company'] ?? null, self::cleanInstructions($instructions), $type]
         );
+    }
+
+    /** Trim and cap instructions; empty becomes NULL. */
+    public static function cleanInstructions(?string $text): ?string
+    {
+        $text = trim(str_replace(["\r\n", "\r"], "\n", (string) $text));
+        return $text === '' ? null : mb_substr($text, 0, self::MAX_INSTRUCTIONS);
+    }
+
+    public static function updateInstructions(int $id, int $userId, ?string $instructions): bool
+    {
+        Database::execute(
+            'UPDATE interview_sessions SET instructions = ? WHERE id = ? AND user_id = ?',
+            [self::cleanInstructions($instructions), $id, $userId]
+        );
+        return self::findForUser($id, $userId) !== null;
+    }
+
+    /** Instructions from the user's most recent session for the same job (carried into new interviews). */
+    public static function lastInstructions(int $userId, ?int $jobId): ?string
+    {
+        $v = $jobId
+            ? Database::value('SELECT instructions FROM interview_sessions WHERE user_id = ? AND job_id = ? AND instructions IS NOT NULL ORDER BY id DESC LIMIT 1', [$userId, $jobId])
+            : Database::value('SELECT instructions FROM interview_sessions WHERE user_id = ? AND job_id IS NULL AND instructions IS NOT NULL ORDER BY id DESC LIMIT 1', [$userId]);
+        return is_string($v) ? $v : null;
     }
 
     public static function end(int $id, int $userId): bool
