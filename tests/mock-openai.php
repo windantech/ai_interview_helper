@@ -141,7 +141,27 @@ if ($method === 'POST' && $route === '/responses') {
             preg_match('/## TRANSCRIPT\n"""\n(.*?)\n"""/s', $text, $m);
             $transcript = strtolower($m[1] ?? '');
             if ($transcript === '' || str_contains($transcript, 'background about our company') || str_contains($transcript, 'thank you')) {
-                responseWith(json_encode(['is_question' => false, 'question' => '', 'question_type' => 'unknown', 'answer_mode' => 'general', 'key_message' => '', 'points' => [], 'sections' => [], 'cv_evidence' => [], 'evidence_note' => '', 'closing_line' => '', 'keywords' => []]));
+                responseWith(json_encode(['is_question' => false, 'question' => '', 'question_type' => 'unknown', 'answer_mode' => 'general', 'key_message' => '', 'points' => [], 'sections' => [], 'cv_evidence' => [], 'evidence_strength' => 'general', 'evidence_note' => '', 'closing_line' => '', 'keywords' => []]));
+            }
+            if (str_contains(strtolower($m[1] ?? ''), 'kubernetes')) {
+                // Nothing on this CV touches Kubernetes: answer anyway, bridged from the closest project.
+                responseWith(json_encode([
+                    'is_question' => true,
+                    'question' => ucfirst(trim($m[1] ?? '')),
+                    'question_type' => 'technical',
+                    'answer_mode' => 'technical',
+                    'key_message' => 'Show the approach transfers, and be straight about the gap.',
+                    'points' => ['I have not run Kubernetes in production, but the rollout discipline is the same as on the depot upgrade.'],
+                    'sections' => [
+                        ['label' => 'Approach', 'bullets' => ['I have not run Kubernetes in production, but on the depot upgrade I ran staged rollouts with a rollback plan, and the same discipline applies.']],
+                        ['label' => 'Key points', 'bullets' => ['First, I would start with readiness and liveness probes so traffic only reaches healthy pods.']],
+                    ],
+                    'cv_evidence' => ['Delivered £4m depot upgrade on time'],
+                    'evidence_strength' => 'adjacent',
+                    'evidence_note' => 'Built from your depot upgrade work — swap in a closer example if you have one.',
+                    'closing_line' => 'The tooling is new to me; the release discipline is not.',
+                    'keywords' => ['Staged rollout', 'Rollback'],
+                ]));
             }
             $quick = str_contains($text, 'Requested mode: QUICK');
             if (str_contains($text, 'Requested mode: WRITTEN')) {
@@ -158,6 +178,7 @@ if ($method === 'POST' && $route === '/responses') {
                         ['label' => 'Conclusion', 'bullets' => ['Recovery therefore rests on three things: an accurate re-baseline, a resequenced critical path, and expectations renegotiated in writing with the sponsor.']],
                     ],
                     'cv_evidence' => ['Delivered £4m depot upgrade on time', 'Managed 12-person team at Acme Build'],
+                    'evidence_strength' => 'direct',
                     'evidence_note' => '',
                     'closing_line' => 'Handled that way, a late project becomes a managed one rather than a failing one.',
                     'keywords' => ['Re-baseline', 'Critical path', 'Stakeholder management'],
@@ -177,6 +198,7 @@ if ($method === 'POST' && $route === '/responses') {
                     ['label' => 'Result', 'bullets' => ['Their delivery improved and the project finished on time.']],
                 ],
                 'cv_evidence' => ['Managed 12-person team at Acme Build'],
+                'evidence_strength' => 'direct',
                 'evidence_note' => '',
                 'closing_line' => 'Addressing issues early keeps small problems small.',
                 'keywords' => ['Accountability', 'Feedback', 'Communication'],

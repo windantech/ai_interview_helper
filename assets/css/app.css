@@ -578,6 +578,12 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .answer-section li::marker, .answer-points li::marker { color: var(--primary); }
 .evidence { background: var(--success-50); border: 1px solid #BBF7D0; border-radius: var(--radius); padding: .7rem .9rem; }
 .evidence .answer-label { color: #15803D; }
+.evidence[data-strength="adjacent"] { background: var(--warning-50); border-color: #FDE68A; }
+.evidence[data-strength="adjacent"] .answer-label { color: var(--warning); }
+.evidence[data-strength="adjacent"] li { color: #78350F; }
+.evidence[data-strength="general"] { background: var(--surface-2); border-color: var(--border-strong); }
+.evidence[data-strength="general"] .answer-label { color: var(--text-2); }
+.evidence[data-strength="general"] li { color: var(--text-2); }
 .evidence li { font-size: .9375rem; color: #14532D; margin-bottom: .15rem; }
 .evidence-note { display: flex; gap: .4rem; align-items: flex-start; margin: 0; font-size: .875rem; color: var(--warning); background: var(--warning-50); border: 1px solid #FDE68A; border-radius: var(--radius); padding: .6rem .8rem; }
 .evidence-note .icon { margin-top: .15rem; }

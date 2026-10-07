@@ -13,6 +13,8 @@ $rich = function (string $text) use ($pattern): string {
     return $out;
 };
 $written = ($a['answer_mode'] ?? '') === 'written';
+$strength = in_array($a['evidence_strength'] ?? '', \App\Services\InterviewService::EVIDENCE_STRENGTHS, true) ? $a['evidence_strength'] : 'direct';
+$evidenceLabel = ['direct' => 'From your CV', 'adjacent' => 'Closest match', 'general' => 'General approach'][$strength];
 ?>
 <div class="answer<?= $written ? ' answer-written' : '' ?>">
     <?php if (!empty($a['key_message'])): ?>
@@ -37,7 +39,7 @@ $written = ($a['answer_mode'] ?? '') === 'written';
     <?php endif; ?>
 
     <?php if (!empty($a['cv_evidence'])): ?>
-        <div class="evidence"><p class="answer-label"><?= icon('file') ?> From your CV</p>
+        <div class="evidence" data-strength="<?= e($strength) ?>"><p class="answer-label"><?= icon('file') ?> <?= e($evidenceLabel) ?></p>
             <ul><?php foreach ($a['cv_evidence'] as $ev): ?><li><?= e($ev) ?></li><?php endforeach; ?></ul>
         </div>
     <?php endif; ?>

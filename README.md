@@ -38,7 +38,8 @@ A mobile-first PHP + MySQL web app that answers interview questions from your ow
   - **Automatic fallback** to recorded mode (MediaRecorder → `gpt-transcribe`) if live transcription is unavailable.
   - **Question detection:** small talk ("Okay, thank you very much.") and company background are ignored, and the app keeps listening. A question split by a pause is joined back together.
   - **Answer modes:** Auto, Quick, STAR, Technical and Leadership. Answers follow a senior speaking format: open with the approach, 3–4 signposted points ("First… Second… Finally…"), one named example from your CV and how you'd validate it, with no repetition or filler words. Technical questions use a fitting framework (debugging: reproduce → measure → isolate → fix → validate; system design: architecture → security → scalability → observability; code review: correctness → security → maintainability → tests). Auto picks the structure from the question type (13 types).
-  - **CV evidence vs. approach:** facts from your CV are shown separately from the suggested approach, and the model is instructed never to invent experience.
+  - **The CV is a starting point, not a limit.** A CV is a summary — it will not list every project, tool or situation you have handled, and a subject missing from it is not proof you have never done it. So every question gets a full, speakable answer: from the CV where it covers the question; otherwise bridged from the **closest real project on it** ("I have not done exactly that, but on <project> I…"); and where nothing is even adjacent, the strong general answer for the role with `[square-bracket gaps]` for your own example. The answer is never withheld for lack of evidence.
+  - **How firm the ground is, at a glance:** each answer is labelled **From your CV** (green — your CV shows this directly), **Closest match** (amber — built from a related project; swap in a better example if you have one) or **General approach** (grey — nothing on the CV to build on). What it never invents are the checkable facts: employers, job titles, dates, qualifications, certifications and numbers. Those are what an interviewer can verify.
   - The transcript is shown first, then the answer **streams in section by section** while it is written. Every line is a complete first-person sentence you can read aloud; job keywords are bold and any `[fill-in]` gaps are highlighted.
   - **Your instructions for this interview:** an optional panel where you tell the AI what to use, e.g. *"When asked for a sample project, use finKAP — I built the loan module and integrated M-Pesa."* They are sent with every question, can be edited mid-interview, are carried over to your next interview for the same job, and are shown in History.
   - **Three ways to get a question in:** **Listen**, **Type question**, or **Scan question** — photograph the question with the camera (or pick a photo) and it goes straight into the interview in progress. If the page holds several questions you tap the one being asked. All three use the same answer pipeline.
@@ -359,11 +360,14 @@ Answer JSON returned by `generate-answer`:
   "sections": [{"label": "Situation", "bullets": ["..."]}, {"label": "Task", "bullets": ["..."]}, {"label": "Action", "bullets": ["...", "..."]}, {"label": "Result", "bullets": ["..."]}],
   "star": {"situation": "...", "task": "...", "action": ["...", "..."], "result": "..."},
   "cv_evidence": ["Relevant experience from CV..."],
+  "evidence_strength": "direct",
   "evidence_note": "",
   "closing_line": "...",
   "keywords": ["leadership", "communication", "results"]
 }
 ```
+
+`evidence_strength` is `direct`, `adjacent` or `general` — whether the CV shows this experience, a related project was bridged from, or there was nothing to build on. `evidence_note` is addressed to the candidate (never spoken) and says what the answer was built from; it is empty when the evidence is direct.
 
 With `"answer_mode": "written"` the shape is the same, but each string in `sections[].bullets` is a full paragraph of prose rather than one spoken sentence, and `star` is absent. Both the browser and the history page render those as paragraphs instead of bullets.
 
@@ -394,6 +398,7 @@ Coverage includes:
 - PDF, DOCX and TXT uploads, invalid and oversized files, replace and delete, private-path blocking
 - creating, editing, deleting and selecting jobs
 - interview sessions: transcript, answer, second question with context, small-talk rejection, mode switching, ended sessions
+- answering a question the CV does not cover: a full answer bridged from the nearest real project, labelled `adjacent` rather than passed off as direct, never degraded into a disclaimer — while employers, dates, qualifications and metrics stay off limits
 - scanning a question into a live interview (`extract_only`: no session opened, nothing stored, answer saved to the interview)
 - live scanning: which frames are sent (still, new, not overlapping, cooldown), part-by-part mode waiting for **Scan next part**, forced reads overriding novelty and cooldown but never stillness, switching modes mid-scan, appending only unseen questions to the open scan, blurred frames treated as "nothing new" rather than errors, and appends rejected on a non-scan or finished session
 - scanning a question paper: multi-page and PDF scans, page-format validation (an executable or SVG renamed `.png` is rejected), questions stored unanswered then answered in written mode, correcting and adding questions, unreadable pages, temporary OpenAI files deleted, scan sessions in history, and ownership checks
@@ -430,6 +435,7 @@ The PHP unit tests also run without Docker: `php tests/run.php`.
 - Live transcription depends on WebRTC access to `api.openai.com`. Some corporate firewalls block it, and the app then falls back to recorded mode.
 - The end of a question is detected locally from silence (about 1.2 s). Very long pauses mid-question may split it. The app re-joins the pieces within 15 s, and you can always tap **Stop** yourself.
 - Password-reset email uses PHP `mail()`. For reliable delivery, configure your host's mail or swap `App\Services\Mailer` for an SMTP provider.
+- Answers for questions your CV does not cover are reasoning, not biography: the approach is genuine, the bridge to a real project is honest, but check the `Closest match` and `General approach` ones before you say them — only you know whether you have something better.
 - CV analysis runs synchronously during upload, which takes about 5–30 s depending on the model and CV length.
 - Legacy `.doc` files are parsed on a best-effort basis locally, otherwise via OpenAI file input. DOCX or PDF give the best results.
 - Cost estimates use the prices in `OPENAI_PRICING` and are approximate.

@@ -11,6 +11,13 @@
         competency: 'Competency', motivation: 'Motivation', career_history: 'Career history', salary_hr: 'Salary / HR',
         problem_solving: 'Problem solving', management: 'Management', communication: 'Communication', general: 'General', unknown: 'Unknown'
     };
+    // How well the CV backs the answer — shown so the candidate knows how firm the ground is.
+    var EVIDENCE_LABELS = {
+        direct:   { label: 'From your CV', hint: 'Your CV shows this experience directly.' },
+        adjacent: { label: 'Closest match', hint: 'Built from a related project on your CV — swap in a closer example if you have one.' },
+        general:  { label: 'General approach', hint: 'Your CV had nothing to build on here, so fill the [gaps] with your own example.' }
+    };
+
     var MODE_LABELS = { quick: 'Quick', star: 'STAR', technical: 'Technical', leadership: 'Leadership', general: 'General', written: 'Written', auto: 'Auto' };
 
     function list(items, cls, keywords) {
@@ -76,11 +83,14 @@
         } else if (Array.isArray(a.points) && a.points.length && (a.answer_mode === 'quick' || !('sections' in a) || a.sections.length === 0)) {
             root.appendChild(list(a.points, 'answer-points', kw));
         }
+        var ev = EVIDENCE_LABELS[a.evidence_strength] || EVIDENCE_LABELS.direct;
         if (Array.isArray(a.cv_evidence) && a.cv_evidence.length) {
-            root.appendChild(el('div', { 'class': 'evidence' }, [
-                el('p', { 'class': 'answer-label', text: 'From your CV' }),
+            root.appendChild(el('div', { 'class': 'evidence', 'data-strength': a.evidence_strength || 'direct' }, [
+                el('p', { 'class': 'answer-label', text: ev.label }),
                 list(a.cv_evidence)
             ]));
+        } else if (a.evidence_strength === 'general') {
+            root.appendChild(el('p', { 'class': 'evidence-note', text: 'ⓘ ' + ev.hint }));
         }
         if (a.evidence_note) {
             root.appendChild(el('p', { 'class': 'evidence-note', text: 'ⓘ ' + a.evidence_note }));
@@ -116,7 +126,7 @@
             out.push('');
         }
         if (Array.isArray(a.cv_evidence) && a.cv_evidence.length) {
-            out.push('FROM YOUR CV');
+            out.push((EVIDENCE_LABELS[a.evidence_strength] || EVIDENCE_LABELS.direct).label.toUpperCase());
             a.cv_evidence.forEach(function (p) { out.push('• ' + p); });
             out.push('');
         }

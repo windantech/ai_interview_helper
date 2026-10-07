@@ -88,7 +88,7 @@ $valid = [
     'is_question' => true, 'question' => '  Tell us about a time you managed conflict. ', 'question_type' => 'behavioural', 'answer_mode' => 'star',
     'key_message' => 'Show calm, fair conflict resolution.', 'points' => ['a', 'b'],
     'sections' => [['label' => 'Situation', 'bullets' => ['S1']], ['label' => 'Task', 'bullets' => ['T1']], ['label' => 'Action', 'bullets' => ['A1', 'A2']], ['label' => 'Result', 'bullets' => ['R1']]],
-    'cv_evidence' => ['Led team'], 'evidence_note' => '', 'closing_line' => '"Close."', 'keywords' => ['Conflict', 'Leadership'],
+    'cv_evidence' => ['Led team'], 'evidence_strength' => 'direct', 'evidence_note' => '', 'closing_line' => '"Close."', 'keywords' => ['Conflict', 'Leadership'],
 ];
 $n = InterviewService::normaliseAnswer($valid);
 check('question trimmed', $n['question'] === 'Tell us about a time you managed conflict.');
@@ -117,6 +117,16 @@ check('written mode kept', $nw['answer_mode'] === 'written' && InterviewService:
 check('written paragraphs not cut to the spoken 220-char limit', mb_strlen($nw['sections'][0]['bullets'][0]) > 500);
 check('spoken bullets still capped at 220', mb_strlen(InterviewService::normaliseAnswer(['is_question' => true, 'question' => 'Q?', 'answer_mode' => 'star',
     'sections' => [['label' => 'Situation', 'bullets' => [$writtenPara]]], 'points' => []])['sections'][0]['bullets'][0]) === 220);
+check('evidence strength kept', $n['evidence_strength'] === 'direct');
+$adj = InterviewService::normaliseAnswer(['is_question' => true, 'question' => 'Q?', 'points' => ['p'],
+    'cv_evidence' => ['Ran a depot upgrade'], 'evidence_strength' => 'adjacent', 'evidence_note' => 'Bridged.']);
+check('bridged answers are marked adjacent, not hidden', $adj['evidence_strength'] === 'adjacent' && $adj['cv_evidence'] && $adj['evidence_note'] === 'Bridged.');
+$bad = InterviewService::normaliseAnswer(['is_question' => true, 'question' => 'Q?', 'points' => ['p'],
+    'cv_evidence' => ['Something relevant'], 'evidence_strength' => 'nonsense']);
+check('unknown strength falls back to what was actually produced', $bad['evidence_strength'] === 'adjacent');
+check('no evidence at all falls back to general', InterviewService::normaliseAnswer(['is_question' => true,
+    'question' => 'Q?', 'points' => ['p'], 'cv_evidence' => []])['evidence_strength'] === 'general');
+
 check('stripJson removes code fences', InterviewService::stripJson("```json\n{\"a\":1}\n```") === '{"a":1}');
 check('stripJson trims preamble', InterviewService::stripJson("Here you go: {\"a\":1} thanks") === '{"a":1}');
 
@@ -173,7 +183,21 @@ check('written mode overrides the spoken-delivery rules', str_contains($wtext, '
 check('written mode gets a larger output budget', $writtenPayload['max_output_tokens'] > $payload['max_output_tokens']);
 check('written mode is told the text came off a paper', str_contains($wtext, 'read off a question paper'));
 check('auto mode can still choose a written answer', str_contains($ptext, 'has to WRITE out'));
-check('system prompt contains anti-fabrication rule', str_contains(json_encode($payload['instructions']), 'Never invent employment history'));
+$sys = $payload['instructions'];
+check('CV is framed as a starting point, not a limit', str_contains($sys, 'STARTING POINT, NOT A LIMIT')
+    && str_contains($sys, 'NOT proof they have never done it'));
+check('every question gets a full answer', str_contains($sys, 'ALWAYS answer the question in full')
+    && str_contains($sys, 'never tell the candidate you have no evidence'));
+check('uncovered questions bridge from the closest real project', str_contains($sys, 'anchored in the CLOSEST real project')
+    && str_contains($sys, 'That is a good answer, not a disclaimer'));
+check('nothing adjacent → general answer with a gap to fill', str_contains($sys, 'leave a short square-bracket gap'));
+check('adjacent evidence counts as evidence', str_contains($sys, 'shares the skill, the problem shape'));
+check('answers report how well the CV backs them', str_contains($sys, 'evidence_strength') && count(InterviewService::EVIDENCE_STRENGTHS) === 3);
+check('no-CV still answers rather than refusing', str_contains(InterviewService::candidateContext(null), 'Still answer every question in full'));
+check('checkable facts are still off limits', str_contains($sys, 'NEVER invent are the checkable facts')
+    && str_contains($sys, 'employers, job titles, dates, qualifications, certifications, and numbers or metrics'));
+check('and that restriction is scoped, not a licence to withhold', str_contains($sys, 'it is not a reason to withhold the answer'));
+check('metrics are never fabricated', str_contains($sys, 'Never make up a metric'));
 
 // ---------------------------------------------------------------- Upload validation
 section('Upload validation (finfo, extensions, signatures)');

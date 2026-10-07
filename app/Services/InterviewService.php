@@ -24,6 +24,9 @@ final class InterviewService
     public const QUESTION_TYPES = ['behavioural', 'technical', 'situational', 'leadership', 'competency', 'motivation', 'career_history', 'salary_hr', 'problem_solving', 'management', 'communication', 'general', 'unknown'];
     public const ANSWER_MODES = ['quick', 'star', 'technical', 'leadership', 'general', 'written'];
     public const USER_MODES = ['auto', 'quick', 'star', 'technical', 'leadership', 'written'];
+    /** How well the CV backs an answer: exact experience, a bridged one, or nothing to build on. */
+    public const EVIDENCE_STRENGTHS = ['direct', 'adjacent', 'general'];
+
     /** Modes that produce a typed/written answer rather than lines to say out loud. */
     public const WRITTEN_MODES = ['written'];
 
@@ -306,7 +309,7 @@ final class InterviewService
     public static function candidateContext(?array $cv): string
     {
         if (!$cv) {
-            return 'NO CV UPLOADED. You have no facts about the candidate. Give approaches and say what kind of example to use; never invent experience.';
+            return 'NO CV UPLOADED. You have no facts about this candidate. Still answer every question in full, as a strong candidate for this role and seniority would, and leave short square-bracket gaps where their own example belongs. Never invent employers, job titles, dates, qualifications or numbers. Set evidence_strength to "general".';
         }
         $profile = CV::profile($cv);
         if ($profile) {
@@ -317,7 +320,7 @@ final class InterviewService
         if (!empty($cv['cv_text'])) {
             return mb_substr((string) $cv['cv_text'], 0, self::MAX_CV_FALLBACK_CHARS);
         }
-        return 'CV uploaded but could not be read. Give approaches only; never invent experience.';
+        return 'CV uploaded but could not be read, so you have no facts about this candidate. Still answer every question in full, leaving short square-bracket gaps where their own example belongs. Never invent employers, job titles, dates, qualifications or numbers. Set evidence_strength to "general".';
     }
 
     /** Drop empty fields to save tokens. */
@@ -351,26 +354,32 @@ final class InterviewService
     private const ANSWER_INSTRUCTIONS = <<<TXT
 You are an interview response coach.
 
-Your job is to help the candidate give an authentic answer using information contained in their CV and interview context. Every line you write under a section is something the candidate will read out loud, word for word, during a live interview.
+Your job is to help the candidate give an authentic answer using their CV and the interview context. Every line you write under a section is something the candidate will read out loud, word for word, during a live interview.
 
-Never invent employment history, qualifications, achievements, employers, numbers or experience.
+THE CV IS A STARTING POINT, NOT A LIMIT. It is the best evidence you have about this candidate, but it is a summary written for a different purpose: it will not list every project, tool, task or situation they have handled. A subject missing from the CV is NOT proof they have never done it.
 
-When evidence is unavailable, provide a suggested approach rather than pretending the candidate has the experience.
+So ALWAYS answer the question in full, in words they can say. Never hand back a non-answer, never tell the candidate you have no evidence, and never replace the answer with instructions to them:
+  - The CV covers the question → answer from it, naming the real project.
+  - The CV does not cover it → still give the whole answer: how a strong candidate at this seniority would approach it, anchored in the CLOSEST real project on the CV. Bridge honestly, in the candidate's own voice: "I have not done exactly that, but on <real project> I <real thing>, and the same approach applies here because...". That is a good answer, not a disclaimer.
+  - Nothing on the CV is even adjacent → give the strong general answer for this role and seniority, and leave a short square-bracket gap where their own example belongs: "A good example of this for me was [project]."
+
+What you must NEVER invent are the checkable facts: employers, job titles, dates, qualifications, certifications, and numbers or metrics. Those are what an interviewer can verify, and getting them wrong costs the candidate the job. Everything else — how they would approach a problem, what they would weigh up, what they learned — is yours to write, because it is reasoning rather than biography.
 
 Answers must be concise enough for the candidate to scan within seconds and natural enough to say out loud.
 
 Process:
 1. QUESTION DETECTION: Decide if the transcript contains an interview question (or a request such as "Tell me about...", "Walk me through...") directed at the candidate. Small talk, thanks, logistics, or the interviewer describing the company are NOT questions (is_question=false). If several sentences precede the question, extract only the actual question. Fix transcription errors and return it as one clean sentence in "question". When is_question=false return empty strings/arrays for every other text field and question_type "unknown".
 2. CLASSIFY question_type.
-3. Compare the question against the job requirements (skills, competencies, tools, leadership and technical requirements) and pick the MOST relevant CV evidence.
+3. Compare the question against the job requirements (skills, competencies, tools, leadership and technical requirements) and pick the CV evidence that comes CLOSEST. Closest counts: a project that shares the skill, the problem shape, the stakeholder situation, the constraint or the scale is usable evidence even when the subject is different. Only treat the CV as offering nothing when nothing on it is even adjacent.
 4. WRITE the guidance:
    - key_message: one sentence — what the answer must demonstrate (shown as a heading, not spoken).
    - sections: labelled structure per the requested mode. Each bullet is ONE complete, natural, first-person sentence the candidate can say exactly as written, e.g. "I led the requirements, design and build of the finKAP platform." Plain conversational English; contractions are fine.
    - Bullets must NEVER be instructions to the candidate: do not write "Explain…", "Mention…", "Describe…", "Talk about…", "if you can recall one". Say it for them instead.
    - points: 2-3 complete spoken sentences that summarise the whole answer (for quick mode, 3-5 sentences that ARE the answer).
-   - Use real names, employers, tools and numbers ONLY when they appear in the candidate profile. If a useful detail is not in the CV, phrase it generally ("the payment integration", "a tight deadline"); only when it is essential, leave a short gap in square brackets for the candidate to fill, e.g. "One defect I fixed was [the defect]." Never make up a metric.
-   - cv_evidence: up to 4 short facts copied/paraphrased from the CV that support this answer (empty if none).
-   - evidence_note: if the CV has no relevant evidence, one short sentence saying so and what kind of example to use; otherwise "".
+   - Employers, job titles, dates, qualifications and numbers: use ONLY what appears in the candidate profile. Where a detail like that is missing, phrase it generally ("the payment integration", "a tight deadline") or leave a short square-bracket gap the candidate fills in, e.g. "One defect I fixed was [the defect]." Never make up a metric. This restriction is on checkable facts only — it is not a reason to withhold the answer.
+   - cv_evidence: up to 4 short facts copied/paraphrased from the CV that support this answer, INCLUDING ones that support it by analogy. Empty only when nothing on the CV is relevant even loosely.
+   - evidence_strength: "direct" when the CV shows this exact experience, "adjacent" when you bridged from a related project, "general" when the CV gave you nothing to build on.
+   - evidence_note: "" when evidence_strength is "direct". Otherwise ONE short sentence addressed to the candidate (never spoken aloud) saying what you built the answer on and inviting the better example they may have, e.g. "Built from your Eval360 work — swap in a closer example if you have one." Assume the CV is incomplete rather than assuming they lack the experience.
    - closing_line: one natural spoken sentence to end the answer, linking back to the role.
    - keywords: 3-6 single words or short phrases to emphasise (prefer job-description vocabulary).
 5. SPEAKING STYLE — make it sound deliberate and senior:
@@ -378,7 +387,7 @@ Process:
    - Make each point once. Never repeat an idea or a phrase across sections; move to the next layer instead.
    - No filler: never start with "So", and do not use "whereby", "maybe", "that is", "basically", "kind of", "you know".
    - Be precise with technical terms. Say "slow-query logs, execution plans, lock contention and connection-pool saturation", not "check database waits".
-   - Include exactly ONE concrete example from the CV, by name, with what it taught the candidate ("I applied this in Eval360, where I designed RBAC and tenant-aware data structures. That taught me to treat tenant isolation as an architectural concern.").
+   - Include exactly ONE concrete example, named, with what it taught the candidate ("I applied this in Eval360, where I designed RBAC and tenant-aware data structures. That taught me to treat tenant isolation as an architectural concern."). When you bridged from a related project, name that real project and own the gap in a single clause — do not pretend the match is exact, and do not apologise for it either.
    - Finish with how the result would be validated or what the outcome was.
    - Short sentences with a natural pause between points, easy to read aloud at a calm pace.
 No markdown, no emojis, no long sentences.
@@ -391,7 +400,7 @@ TXT;
         return [
             'type' => 'object',
             'additionalProperties' => false,
-            'required' => ['is_question', 'question', 'question_type', 'answer_mode', 'key_message', 'points', 'sections', 'cv_evidence', 'evidence_note', 'closing_line', 'keywords'],
+            'required' => ['is_question', 'question', 'question_type', 'answer_mode', 'key_message', 'points', 'sections', 'cv_evidence', 'evidence_strength', 'evidence_note', 'closing_line', 'keywords'],
             'properties' => [
                 'is_question'   => ['type' => 'boolean'],
                 'question'      => ['type' => 'string'],
@@ -405,6 +414,7 @@ TXT;
                     'properties' => ['label' => ['type' => 'string'], 'bullets' => $strArr],
                 ]],
                 'cv_evidence'   => $strArr,
+                'evidence_strength' => ['type' => 'string', 'enum' => self::EVIDENCE_STRENGTHS],
                 'evidence_note' => ['type' => 'string'],
                 'closing_line'  => ['type' => 'string'],
                 'keywords'      => $strArr,
@@ -457,6 +467,12 @@ TXT;
             throw new \UnexpectedValueException('Answer has no content');
         }
 
+        $evidence = $list($d['cv_evidence'] ?? [], 4, 260);
+        // Fall back from what the model claimed to what it actually produced.
+        $strength = in_array($d['evidence_strength'] ?? '', self::EVIDENCE_STRENGTHS, true)
+            ? $d['evidence_strength']
+            : ($evidence ? 'adjacent' : 'general');
+
         $out = [
             'is_question'   => true,
             'question'      => $question,
@@ -465,7 +481,8 @@ TXT;
             'key_message'   => $s($d['key_message'] ?? '', 300),
             'points'        => $points,
             'sections'      => $mode === 'quick' ? [] : $sections,
-            'cv_evidence'   => $list($d['cv_evidence'] ?? [], 4, 260),
+            'cv_evidence'   => $evidence,
+            'evidence_strength' => $strength,
             'evidence_note' => $s($d['evidence_note'] ?? '', 300),
             'closing_line'  => trim($s($d['closing_line'] ?? '', $written ? 500 : 300), '"“”'),
             'keywords'      => $list($d['keywords'] ?? [], 6, 40),

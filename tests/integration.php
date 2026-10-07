@@ -273,6 +273,20 @@ $a = $r['json']['data'] ?? [];
 check('Q1: answer generated', $r['status'] === 200 && ($a['is_question'] ?? false) === true && !empty($a['answer']['sections']), $r['body']);
 check('Q1: STAR structure + star object', ($a['answer']['answer_mode'] ?? '') === 'star' && isset($a['answer']['star']['action']));
 check('Q1: CV evidence separated from approach', !empty($a['answer']['cv_evidence']) && !empty($a['answer']['key_message']));
+check('Q1: evidence reported as direct', ($a['answer']['evidence_strength'] ?? '') === 'direct');
+
+// A question this CV cannot support must still get a full answer, bridged from the nearest project.
+$r = $c->api('api/generate-answer.php', ['session_id' => $sid, 'transcript' => 'How would you run a Kubernetes rollout?', 'mode' => 'auto', 'source' => 'typed']);
+$kube = $r['json']['data']['answer'] ?? [];
+check('uncovered question is still answered in full', ($r['json']['data']['is_question'] ?? false) === true
+    && !empty($kube['sections']) && !empty($kube['points']), $r['body']);
+check('it is marked as bridged, not passed off as direct', ($kube['evidence_strength'] ?? '') === 'adjacent');
+check('it is anchored in a real project from the CV', !empty($kube['cv_evidence'])
+    && str_contains(json_encode($kube['sections']), 'depot upgrade'));
+check('the candidate is told what it was built from', str_contains($kube['evidence_note'] ?? '', 'swap in a closer example'));
+check('and the answer is speakable, not a disclaimer', !str_contains(strtolower(json_encode($kube['sections'])), 'no evidence')
+    && !str_contains(strtolower(json_encode($kube['sections'])), 'cannot answer'));
+pdo()->exec("DELETE FROM interview_questions WHERE session_id = $sid AND question LIKE '%Kubernetes%'");
 check('Q1: saved to history', (int) ($a['question_id'] ?? 0) > 0);
 $req = lastMock('/responses')['json'];
 $reqText = json_encode($req);
