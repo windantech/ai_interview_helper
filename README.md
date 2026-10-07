@@ -19,10 +19,11 @@ A mobile-first PHP + MySQL web app that answers interview questions from your ow
 9. [HTTPS, camera and microphone access](#https-camera-and-microphone-access)
 10. [Directory structure](#directory-structure)
 11. [API endpoints](#api-endpoints)
-12. [Security](#security)
-13. [Testing](#testing)
-14. [Troubleshooting](#troubleshooting)
-15. [Known limitations](#known-limitations)
+12. [Research: detection signals](#research-detection-signals)
+13. [Security](#security)
+14. [Testing](#testing)
+15. [Troubleshooting](#troubleshooting)
+16. [Known limitations](#known-limitations)
 
 ---
 
@@ -49,6 +50,7 @@ A mobile-first PHP + MySQL web app that answers interview questions from your ow
 - **History:** sessions with date, job, company, question count and duration. You can search and filter by job, date or type (interview, practice or scanned paper), open a session to see every Q&A, and delete one session or all history.
 - **Practice mode:** the AI asks tailored questions one at a time. Speak or type your answer, or skip. You get a score, strengths, missing points, a better structure, delivery tips (repetition, opening with your approach, precision), the filler words you used with counts, likely mis-heard phrases (a sign you're speaking too fast), and an improved example answer. "Show approach" shows the suggested answer for that question.
 - **Settings:** profile, password, default answer style, short/medium detail, default interview type, transcription mode, auto-detect, show transcript, save history, AI usage and estimated cost, and deleting your CV, your history or your account (which removes all rows and files).
+- **Detection signals (research):** scores your own recorded sessions on signals an interviewer or hiring platform could plausibly observe. See [Research: detection signals](#research-detection-signals).
 - **Privacy & Terms pages**, a consent dialog before the microphone is first used, and a visible "Microphone on" indicator whenever it is.
 
 ## Scanning a question paper
@@ -294,13 +296,13 @@ Browsers only allow `getUserMedia` (the microphone and the camera) in a **secure
 /
 ├── index.php               landing page (redirects to dashboard when signed in)
 ├── login.php register.php logout.php forgot-password.php reset-password.php
-├── dashboard.php interview.php scan.php practice.php jobs.php cv.php history.php settings.php
+├── dashboard.php interview.php scan.php practice.php jobs.php cv.php history.php research.php settings.php
 ├── privacy.php terms.php
 ├── cv-file.php             authenticated CV download route
 ├── router.php              dev-server router (enforces .htaccess rules)
 ├── api/                    JSON endpoints ({success,data} / {success:false,message})
 │   ├── realtime-session.php  transcribe.php  generate-answer.php
-│   ├── scan-extract.php  scan-question.php
+│   ├── scan-extract.php  scan-question.php  research-export.php
 │   ├── upload-cv.php  delete-cv.php  reprocess-cv.php  cv-profile.php
 │   ├── save-job.php  delete-job.php  select-job.php
 │   ├── start-session.php  end-session.php  history.php  delete-session.php
@@ -308,7 +310,7 @@ Browsers only allow `getUserMedia` (the microphone and the camera) in a **secure
 ├── app/
 │   ├── bootstrap.php  helpers.php
 │   ├── Core/       Api Auth Config Csrf Database Env HttpException Logger RateLimiter Response Session Validator View
-│   ├── Services/   OpenAIClient OpenAIException CVService InterviewService ScanService FileUploadService Mailer
+│   ├── Services/   OpenAIClient OpenAIException CVService InterviewService ScanService DetectionService FileUploadService Mailer
 │   └── Models/     User CV Job InterviewSession Settings UsageLog PasswordReset
 ├── assets/
 │   ├── css/app.css
@@ -347,6 +349,7 @@ All endpoints require a signed-in session. POST requests require the `X-CSRF-Tok
 | `api/delete-session.php` | POST JSON | `session_id` or `all:true` | |
 | `api/practice-question.php` / `practice-feedback.php` | POST JSON | `session_id, focus` / `question_id, answer_text` | |
 | `api/session-instructions.php` | POST JSON | `session_id, instructions` | Your own instructions for the interview (max 2000 chars) |
+| `api/research-export.php` | GET | — | Detection signals for your own sessions as CSV, one row per session |
 | `api/preferences.php` | POST JSON | `default_answer_mode`, `transcription_mode`, `mic_consent` | |
 
 Answer JSON returned by `generate-answer`:
@@ -371,6 +374,44 @@ Answer JSON returned by `generate-answer`:
 `evidence_strength` is `direct`, `adjacent` or `general` — whether the CV shows this experience, a related project was bridged from, or there was nothing to build on. `evidence_note` is addressed to the candidate (never spoken) and says what the answer was built from; it is empty when the evidence is direct.
 
 With `"answer_mode": "written"` the shape is the same, but each string in `sections[].bullets` is a full paragraph of prose rather than one spoken sentence, and `star` is absent. Both the browser and the history page render those as paragraphs instead of bullets.
+
+## Research: detection signals
+
+This project is a pilot study into how defeatable remote interviews are by a commodity LLM. The
+attack half is the rest of this app. `research.php` is the defensive half: it scores each recorded
+session on signals that could plausibly be observed by an interviewer or a hiring platform, so the
+question "how visible is this?" can be answered with numbers rather than asserted.
+
+`App\Services\DetectionService` is pure — session and question rows in, numbers out — so the signals
+can be evaluated against transcripts without a database, and the thresholds tuned against a corpus.
+
+| Signal | What it measures | Why it might indicate assistance |
+|---|---|---|
+| **Answer available within** | Median generation latency | This is the *floor* on the candidate's pause. An assisted candidate cannot answer faster than the model, but can always be slower. |
+| **Answers not grounded in own evidence** | Share labelled `adjacent` or `general` | A real career produces direct answers more often than a generated one does. |
+| **Answers alike in shape** | Coefficient of variation in lines per answer | Humans vary — some answers run long, some are two sentences. Generated ones land on the same shape each time. |
+| **Vocabulary echoing the job description** | Share of answer keywords drawn from the JD | Tailoring that tracks the posting too closely. |
+| **Spoken answer matches the text supplied** | Word overlap between what the candidate said and what the app showed them, plus filler rate in their own speech | The strongest of the five: it catches *recitation* directly. Reading aloud also flattens delivery to near-zero "um / you know". |
+
+Each signal reports a 0–1 level, whether it could be measured at all, and whether it crosses its
+threshold. The session score is a weighted mean **over the signals that were measurable** — an
+unmeasurable signal is excluded rather than counted as a zero, and the CSV writes a blank for it so
+it is dropped from analysis rather than averaged in. Confidence is capped at `moderate`; the tool
+never claims `high`.
+
+**Export** gives one row per session and one column per signal for offline analysis.
+
+> **These are heuristics, not proof, and the page says so above the results.** Every signal has an
+> innocent explanation: a fast answer may be a rehearsed one, uniform structure may be a candidate
+> taught to use STAR, and job-description vocabulary is what a well-prepared candidate uses on
+> purpose. The score is an instrument for comparing populations in a study. It is not fit to judge an
+> individual and must not be used to accuse one.
+
+**Running a study.** The signals only mean something against a control, so collect both arms: the
+same question set answered with the assistant and without it, by consenting participants who know
+what is being measured. Practice mode is the useful harness here, because it records the candidate's
+own words in `user_answer` alongside the generated answer — which is what the recitation signal
+needs. Export both arms and compare the distributions, not individual scores.
 
 ## Security
 
@@ -402,6 +443,7 @@ Coverage includes:
 - experience declared in the instructions panel: treated as first-hand, labelled `direct`, answered without hedging, and still never inventing a metric or employer around it
 - answering a question the CV does not cover: a full answer bridged from the nearest real project, labelled `adjacent` rather than passed off as direct, never degraded into a disclaimer — while employers, dates, qualifications and metrics stay off limits
 - scanning a question into a live interview (`extract_only`: no session opened, nothing stored, answer saved to the interview)
+- detection signals: that each of the five separates an assisted session from a control, that a thin session refuses to conclude, that unmeasurable signals are excluded rather than scored zero, and that the CSV export is read-only and authenticated
 - live scanning: which frames are sent (still, new, not overlapping, cooldown), part-by-part mode waiting for **Scan next part**, forced reads overriding novelty and cooldown but never stillness, switching modes mid-scan, appending only unseen questions to the open scan, blurred frames treated as "nothing new" rather than errors, and appends rejected on a non-scan or finished session
 - scanning a question paper: multi-page and PDF scans, page-format validation (an executable or SVG renamed `.png` is rejected), questions stored unanswered then answered in written mode, correcting and adding questions, unreadable pages, temporary OpenAI files deleted, scan sessions in history, and ownership checks
 - history search and filters, practice mode, settings, access control between users, password reset, full account deletion

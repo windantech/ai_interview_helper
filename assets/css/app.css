@@ -726,6 +726,32 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .iv-scan-pick:hover { border-color: var(--primary); background: var(--primary-50); }
 .iv-scan-pick .sc-num { flex: none; }
 
+/* ------------------------------------------------------------------ research: detection signals */
+.rs-list { display: grid; gap: 1rem; }
+.rs-item { display: grid; gap: .9rem; }
+.rs-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: .75rem; }
+.rs-title { min-width: 0; flex: 1 1 220px; }
+.rs-title p { margin: .15rem 0 0; }
+.rs-score { flex: none; text-align: center; min-width: 96px; padding: .5rem .7rem; border-radius: var(--radius); border: 1px solid var(--border); }
+.rs-score-num { display: block; font-size: 1.75rem; font-weight: 800; line-height: 1; }
+.rs-score-label { display: block; font-size: .6875rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-top: .2rem; }
+.rs-score[data-band="high"] { background: var(--danger-50); border-color: #FECACA; }
+.rs-score[data-band="high"] .rs-score-num { color: var(--danger-600); }
+.rs-score[data-band="mid"] { background: var(--warning-50); border-color: #FDE68A; }
+.rs-score[data-band="mid"] .rs-score-num { color: var(--warning); }
+.rs-score[data-band="low"] { background: var(--success-50); border-color: #BBF7D0; }
+.rs-score[data-band="low"] .rs-score-num { color: #15803D; }
+
+.rs-signals { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.rs-signal { display: grid; grid-template-columns: minmax(0, 1fr); gap: .2rem; }
+.rs-signal-label { font-size: .875rem; font-weight: 600; color: var(--text-2); }
+.rs-signal.is-flagged .rs-signal-label { color: var(--danger-600); }
+.rs-signal.is-unmeasured { opacity: .55; }
+.rs-bar { display: block; height: 7px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+.rs-bar > span { display: block; height: 100%; border-radius: 99px; background: var(--primary); transition: width .3s; }
+.rs-signal.is-flagged .rs-bar > span { background: var(--danger); }
+.rs-signal-detail { overflow-wrap: anywhere; }
+
 /* ------------------------------------------------------------------ practice */
 .practice-bar { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-bottom: 1rem; }
 #practice-stage > .card { margin-bottom: 1rem; }
@@ -781,6 +807,7 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
     .job-card-actions { flex-direction: column; align-items: stretch; min-width: 140px; }
     .mic-wrap { width: 150px; height: 150px; }
     .mic-btn { width: 104px; height: 104px; }
+    .rs-signal { grid-template-columns: minmax(0, 14rem) minmax(0, 1fr) minmax(0, 16rem); align-items: center; gap: .75rem; }
     .sc-sources { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .sc-cam-frame { aspect-ratio: 4 / 3; max-height: 60vh; }
     .sc-item { padding: 1.25rem; }

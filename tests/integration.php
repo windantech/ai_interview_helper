@@ -513,6 +513,19 @@ check('history can be filtered to scanned papers', $r['status'] === 200 && str_c
 $r = $c->api('api/end-session.php', ['session_id' => $pdfScanSid]);
 check('finishing a paper ends the session', $r['status'] === 200);
 
+// =================================================================== RESEARCH
+section('Detection signals');
+$r = $c->get('research.php');
+check('research page renders', $r['status'] === 200 && str_contains($r['body'], 'rs-') && noPhpErrors($r['body']));
+check('the caveat is on the page', str_contains($r['body'], 'These are heuristics, not proof'));
+$r = $c->get('api/research-export.php');
+check('CSV export downloads', $r['status'] === 200 && str_contains($r['head'], 'text/csv'), $r['head']);
+check('CSV has a header row with every signal', str_contains($r['body'], 'session_id,started_at')
+    && str_contains($r['body'], 'latency_level') && str_contains($r['body'], 'register_flag'), substr($r['body'], 0, 200));
+check('CSV has a row per session', substr_count(trim($r['body']), "\n") >= 1);
+$other2 = new Client($BASE);
+check('export requires a session', $other2->get('api/research-export.php')['status'] === 401);
+
 // =================================================================== SETTINGS
 section('Settings & privacy controls');
 $r = $c->get('settings.php');
@@ -590,7 +603,7 @@ check('login attempts rate limited', str_contains($last, 'Too many sign-in attem
 
 // =================================================================== PAGES
 section('All pages render without PHP errors');
-foreach (['dashboard.php', 'cv.php', 'jobs.php', 'jobs.php?new=1', "jobs.php?edit=$jobId", 'interview.php', "interview.php?job=$jobId", 'scan.php', "scan.php?job=$jobId", 'practice.php', 'history.php', 'history.php?type=scan', 'settings.php', 'privacy.php', 'terms.php', 'nope.php'] as $pg) {
+foreach (['dashboard.php', 'cv.php', 'jobs.php', 'jobs.php?new=1', "jobs.php?edit=$jobId", 'interview.php', "interview.php?job=$jobId", 'scan.php', "scan.php?job=$jobId", 'practice.php', 'history.php', 'history.php?type=scan', 'research.php', 'settings.php', 'privacy.php', 'terms.php', 'nope.php'] as $pg) {
     $r = $l->get($pg);
     $ok = ($pg === 'nope.php' ? $r['status'] === 404 : $r['status'] === 200) && noPhpErrors($r['body']);
     check("GET /$pg", $ok, $r['status'] . ' ' . substr(strip_tags($r['body']), 0, 300));

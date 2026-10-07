@@ -16,6 +16,7 @@ use App\Core\HttpException;
 use App\Core\Logger;
 use App\Core\Validator;
 use App\Services\CVService;
+use App\Services\DetectionService;
 use App\Services\FileUploadService;
 use App\Services\InterviewService;
 use App\Services\OpenAIClient;
@@ -347,6 +348,54 @@ check('normalise dedupes with that same key', count(ScanService::normalise(['que
 check('single page prompt differs from multi-page', str_contains(json_encode($one), 'is one page of a question paper') && !str_contains(json_encode($one), 'consecutive pages'));
 check('scan payload without a job still valid', ($one['text']['format']['strict'] ?? false) === true && count($one['input'][0]['content']) === 2);
 check('PDF pages go through the Files API, not a data URL', str_contains(file_get_contents(APP_ROOT . '/app/Services/ScanService.php'), "'type' => 'input_file', 'file_id' => $fileId"));
+
+// ---------------------------------------------------------------- Detection signals
+section('Detection signals (research instrumentation)');
+$mkSession = function (int $n, bool $assisted): array {
+    $out = [];
+    for ($i = 0; $i < $n; $i++) {
+        $out[] = [
+            'latency_ms'  => $assisted ? 3200 : 24000,
+            'user_answer' => $assisted
+                ? 'I rebuilt the critical path with the delivery leads and renegotiated the sequence.'
+                : 'um so I guess like basically you know I sort of muddled through and it worked out',
+            'answer' => [
+                'evidence_strength' => $assisted ? 'adjacent' : 'direct',
+                'keywords' => $assisted ? ['Stakeholder management', 'Risk management'] : ['Patience', 'Listening'],
+                'sections' => [['label' => 'A', 'bullets' => array_fill(0, $assisted ? 4 : ($i % 5) + 1,
+                    'I rebuilt the critical path with the delivery leads and renegotiated the sequence.')]],
+            ],
+        ];
+    }
+    return $out;
+};
+$detJob = ['main_skills' => 'Stakeholder management, Risk management',
+    'jd_summary_json' => json_encode(['required_skills' => ['stakeholder management', 'risk management']])];
+$assisted = DetectionService::analyse(['session_type' => 'live'], $mkSession(8, true), $detJob);
+$control  = DetectionService::analyse(['session_type' => 'live'], $mkSession(8, false), $detJob);
+$flagged = fn (array $r, string $k) => (array_values(array_filter($r['signals'], fn ($x) => $x['key'] === $k))[0]['flag'] ?? null);
+
+check('assisted sessions score above unassisted ones', $assisted['score'] > $control['score'], $assisted['score'] . ' vs ' . $control['score']);
+check('and separate by a usable margin', $assisted['score'] - $control['score'] >= 25, 'margin ' . ($assisted['score'] - $control['score']));
+foreach (['latency', 'grounding', 'uniformity', 'vocabulary', 'register'] as $sig) {
+    check("$sig separates the two", $flagged($assisted, $sig) === true && $flagged($control, $sig) === false);
+}
+check('a thin session refuses to conclude', DetectionService::analyse([], $mkSession(2, true), $detJob)['confidence'] === 'insufficient');
+check('a full session claims no more than moderate', $assisted['confidence'] === 'moderate');
+check('an empty session scores zero rather than guessing', DetectionService::analyse([], [], null)['score'] === 0);
+check('unmeasurable signals are excluded, not counted as zero',
+    DetectionService::analyse([], [['answer' => ['sections' => [['label' => 'a', 'bullets' => ['one two three.']]]]]], null)['signals'][3]['measured'] === false);
+
+check('recited wording scores high overlap', DetectionService::overlap('I rebuilt the critical path with the delivery leads', 'I rebuilt the critical path with the delivery leads and renegotiated') > 0.9);
+check('own wording scores low overlap', DetectionService::overlap('um I guess I muddled through honestly', 'I rebuilt the critical path with the delivery leads') < 0.2);
+check('overlap ignores short common words', DetectionService::overlap('the and but a of', 'completely unrelated') === 0.0);
+check('median handles even and odd sets', DetectionService::median([1, 2, 3, 4]) === 2.5 && DetectionService::median([5, 1, 3]) === 3.0);
+check('identical shapes have zero variation', DetectionService::coefficientOfVariation([4.0, 4.0, 4.0]) === 0.0);
+check('varied shapes do not', DetectionService::coefficientOfVariation([1.0, 9.0]) > 0.5);
+check('filler rate catches multi-word fillers', DetectionService::fillerRate('you know I sort of did it') > 0.0);
+check('and is zero for clean prose', DetectionService::fillerRate('I rebuilt the critical path.') === 0.0);
+check('unpunctuated speech is not read as one huge sentence', DetectionService::sentenceCount('um so I guess I did it') === 1);
+check('answer lines fall back to points', DetectionService::answerLines(['points' => ['a', 'b'], 'sections' => []]) === ['a', 'b']);
 
 // ---------------------------------------------------------------- Logger redaction
 section('Logging hygiene');

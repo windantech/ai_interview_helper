@@ -30,6 +30,7 @@ $bottom = [
         </div>
         <ul class="side-nav">
             <li><a href="<?= e(url('practice.php')) ?>" class="<?= $active === 'practice' ? 'active' : '' ?>"><?= icon('target') ?><span>Practice mode</span></a></li>
+            <li><a href="<?= e(url('research.php')) ?>" class="<?= $active === 'research' ? 'active' : '' ?>"><?= icon('search') ?><span>Detection signals</span></a></li>
             <li><a href="<?= e(url('settings.php')) ?>" class="<?= $active === 'settings' ? 'active' : '' ?>"><?= icon('settings') ?><span>Settings</span></a></li>
             <li><a href="<?= e(url('privacy.php')) ?>"><?= icon('shield') ?><span>Privacy</span></a></li>
             <li><a href="<?= e(url('terms.php')) ?>"><?= icon('file') ?><span>Terms</span></a></li>

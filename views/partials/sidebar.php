@@ -8,6 +8,7 @@ $nav = [
     'cv'        => ['My CV', 'cv.php', 'file'],
     'jobs'      => ['Target jobs', 'jobs.php', 'briefcase'],
     'history'   => ['History', 'history.php', 'history'],
+    'research'  => ['Detection signals', 'research.php', 'search'],
     'settings'  => ['Settings', 'settings.php', 'settings'],
 ];
 ?>
