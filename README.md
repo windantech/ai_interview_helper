@@ -70,7 +70,7 @@ There are two ways in, for two different situations:
 **Flow**
 
 1. **Capture**, whichever suits the material:
-   - **Live scan** — hold the camera over the page and scroll. Frames are read continuously and questions appear in the list as they are found, so there is no shutter button and no page count. See [How live scanning decides what to read](#how-live-scanning-decides-what-to-read).
+   - **Live scan** — hold the camera over the page and scroll. Frames are read continuously and questions appear in the list as they are found, so there is no shutter button and no page count. Zoom out to fit a whole page in frame, and choose whether it keeps scanning on its own or waits for **Scan next part** between sections. See [How live scanning decides what to read](#how-live-scanning-decides-what-to-read).
    - **Single photo** — capture a page at a time, up to 8 per scan (`MAX_SCAN_PAGES`).
    - **Choose files** — photos, or a PDF of the whole paper.
 
@@ -106,6 +106,25 @@ session does not already hold — matched on text with punctuation, spacing and 
 overlapping frames re-read the same question with small OCR differences. Live frames get their own
 rate limit (`scan_live`, 90 per 10 minutes) because they are sent far more often than a deliberate
 capture.
+
+**Fitting a whole page in frame.** Live scanning opens the camera at its **widest** setting and shows
+a **Zoom** slider when the camera exposes one (Android Chrome does; iOS Safari does not — move the
+camera further from the page instead). The preview uses `object-fit: contain`, so what you see is
+exactly what gets sent: if a page edge is outside the preview it is outside the capture too. Changing
+the zoom clears what counts as "already read", since the framing — and so the thumbnail comparison —
+has changed.
+
+**Keep scanning, or part by part.** Two modes, switchable mid-scan:
+
+| Mode | Behaviour |
+|---|---|
+| **Keep scanning** (default) | Reads whenever the view settles on something new. Scroll and it keeps up. |
+| **Part by part** | Reads the view in front of it, then stops and waits for **Scan next part**. Use it on a dense page, or when you want to check each batch before moving on. |
+
+**Scan next part** is also there in automatic mode, as an override: it reads the current view even
+though it resembles the last one, which is what you want when two questions look alike enough that
+the novelty check skips the second. It never skips the stillness check — a blurred frame is worth
+nothing — so it fires as soon as the camera is steady.
 
 > Live scanning costs one vision call per settled view. A long document is many calls — watch your
 > usage in Settings the first time you scan something big.
@@ -376,7 +395,7 @@ Coverage includes:
 - creating, editing, deleting and selecting jobs
 - interview sessions: transcript, answer, second question with context, small-talk rejection, mode switching, ended sessions
 - scanning a question into a live interview (`extract_only`: no session opened, nothing stored, answer saved to the interview)
-- live scanning: which frames are sent (still, new, not overlapping, cooldown), appending only unseen questions to the open scan, blurred frames treated as "nothing new" rather than errors, and appends rejected on a non-scan or finished session
+- live scanning: which frames are sent (still, new, not overlapping, cooldown), part-by-part mode waiting for **Scan next part**, forced reads overriding novelty and cooldown but never stillness, switching modes mid-scan, appending only unseen questions to the open scan, blurred frames treated as "nothing new" rather than errors, and appends rejected on a non-scan or finished session
 - scanning a question paper: multi-page and PDF scans, page-format validation (an executable or SVG renamed `.png` is rejected), questions stored unanswered then answered in written mode, correcting and adding questions, unreadable pages, temporary OpenAI files deleted, scan sessions in history, and ownership checks
 - history search and filters, practice mode, settings, access control between users, password reset, full account deletion
 - OpenAI 401, 403, 429, quota, 500, timeout, invalid JSON, refusal and malformed structured output
@@ -396,7 +415,8 @@ The PHP unit tests also run without Docker: `php tests/run.php`.
 | Microphone button errors on a phone | The site must be on **HTTPS**. Check the browser's site permissions for the microphone. |
 | "Microphone access was blocked" | Allow the microphone via the padlock or camera icon in the address bar, then press Try again. |
 | "Camera access was blocked" on the Scan page | Allow the camera via the padlock in the address bar, or use **Choose files** and upload a photo taken with your phone's camera app. |
-| Live scan finds nothing while you scroll | Pause for about a second on each question — frames are only read once the view settles. If it says "Nothing new here", the view has not changed enough since the last read; scroll further. |
+| Live scan finds nothing while you scroll | Pause for about a second on each question — frames are only read once the view settles. If it says "Nothing new here", the view has not changed enough since the last read; press **Scan next part** to force a read, or scroll further. |
+| The whole page will not fit in the camera frame | Drag the **Zoom** slider down, or move the camera further from the page. What the preview shows is exactly what is captured, so if an edge is cut off in the preview it is cut off in the scan. |
 | Scan returns "We couldn't find any questions on that page" | Re-shoot the page: fill the frame, keep it flat and square to the camera, and avoid shadow across the text. Then check the extracted list and add anything missing. |
 | CV upload fails with "too large" below 10 MB | Raise `upload_max_filesize` / `post_max_size` in the PHP settings (see `.user.ini`). |
 | "Your session has expired. Please refresh" | The CSRF token expired. Reload the page. |
@@ -414,6 +434,7 @@ The PHP unit tests also run without Docker: `php tests/run.php`.
 - Legacy `.doc` files are parsed on a best-effort basis locally, otherwise via OpenAI file input. DOCX or PDF give the best results.
 - Cost estimates use the prices in `OPENAI_PRICING` and are approximate.
 - Live scanning needs a reasonably steady hand and decent light. Scroll slowly and pause on each question; if the status strip sits on "Hold still…" the camera is being moved too much for the text to be sharp.
+- Zoom control depends on the camera exposing a zoom capability. Android Chrome generally does; iOS Safari does not, so on iPhone you fit a whole page by moving the camera further away. The slider is hidden when it cannot work rather than shown doing nothing.
 - Scanning is only as good as the photo. A page shot at an angle, in poor light or with the edges cropped loses questions, so check the extracted list — and correct or add questions — before answering. Dense handwriting is the hardest case.
 - A scan reads at most 8 pages and 40 questions at a time. A longer paper takes more than one scan.
 - `OPENAI_SCAN_MODEL` must be vision-capable. A text-only model returns an error from the Responses API.

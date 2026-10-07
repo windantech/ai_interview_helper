@@ -69,9 +69,29 @@ $modes = options_for('scan_answer_mode');
                 <span class="sc-live-dot" aria-hidden="true"></span><span id="sc-live-text">Starting…</span>
             </p>
         </div>
+        <div class="sc-zoom" id="sc-zoom-wrap" hidden>
+            <label for="sc-zoom">Zoom</label>
+            <button type="button" class="sc-zoom-btn" id="sc-zoom-out" aria-label="Zoom out — fit more of the page">−</button>
+            <input type="range" id="sc-zoom" min="1" max="2" step="0.1" value="1" aria-label="Camera zoom">
+            <button type="button" class="sc-zoom-btn" id="sc-zoom-in" aria-label="Zoom in">+</button>
+        </div>
+
         <p class="hint center" id="sc-cam-hint">Hold the camera straight above the page so all four corners are inside the frame.</p>
+
+        <div class="sc-live-mode" id="sc-live-mode" role="radiogroup" aria-label="Scanning mode" hidden>
+            <label class="seg">
+                <input type="radio" name="sc-mode-live" value="auto" checked>
+                <span>Keep scanning</span>
+            </label>
+            <label class="seg">
+                <input type="radio" name="sc-mode-live" value="manual">
+                <span>Part by part</span>
+            </label>
+        </div>
+
         <div class="btn-row center">
             <button type="button" class="btn btn-primary btn-lg" id="sc-shoot"><?= icon('camera') ?> Capture page</button>
+            <button type="button" class="btn btn-primary btn-lg" id="sc-next" hidden><?= icon('scan') ?> Scan next part</button>
             <button type="button" class="btn btn-danger btn-lg" id="sc-live-stop" hidden><?= icon('stop') ?> Stop scanning</button>
             <button type="button" class="btn btn-ghost" id="sc-cam-close">Close camera</button>
         </div>

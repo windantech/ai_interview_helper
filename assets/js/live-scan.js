@@ -44,10 +44,16 @@
         this.canvas = c;
         this.ctx = c.getContext('2d', { willReadFrequently: true });
 
+        // Step-by-step: read one view, then wait to be told to move on. Otherwise the scanner
+        // decides for itself whenever the view settles on something new.
+        this.manual = !!opts.manual;
+
         this.prev = null;        // thumbnail from the previous tick
         this.sent = null;        // thumbnail of the frame last sent to be read
         this.steady = 0;
         this.busy = false;
+        this.paused = false;     // step-by-step, waiting for nextPart()
+        this.force = false;      // read the next settled view even if it looks familiar
         this.timer = null;
         this.lastSentAt = 0;
         this.steadySince = 0;
@@ -66,8 +72,10 @@
             self.steady = 0;
             self.lastSentAt = 0;
             self.steadySince = 0;
-            self.setState('searching');
+            self.paused = false;
+            self.force = true;      // read whatever is framed first, in either mode
             self.timer = setInterval(function () { self.tick(); }, self.tickMs);
+            self.setState('searching');
         });
     };
 
@@ -89,8 +97,33 @@
         } else {
             this.steady = 0;              // re-settle before considering another frame
             this.lastSentAt = Date.now();
-            this.setState('searching');
+            this.paused = this.manual;
+            this.setState(this.paused ? 'waiting_next' : 'searching');
         }
+    };
+
+    /**
+     * "Scan the next part": read the view as soon as it is still, even if it resembles the last one
+     * read. Used by the Scan next part button, and as a manual override in automatic mode when the
+     * next question looks too much like the last for the novelty check to notice.
+     */
+    LiveScanner.prototype.nextPart = function () {
+        if (this.busy) { return false; }
+        this.paused = false;
+        this.force = true;
+        this.steady = 0;
+        this.steadySince = 0;
+        this.setState('searching');
+        return true;
+    };
+
+    LiveScanner.prototype.setManual = function (on) {
+        this.manual = !!on;
+        if (!this.manual && this.paused) { this.nextPart(); }
+    };
+
+    LiveScanner.prototype.waiting = function () {
+        return this.paused;
     };
 
     /** Treat the current view as already read (used after a frame yielded nothing new). */
@@ -135,6 +168,7 @@
         this.prev = now;
 
         if (this.busy) { return; }
+        if (this.paused) { this.setState('waiting_next'); return; }
 
         if (motion > this.motionMax) {
             this.steady = 0;
@@ -150,16 +184,18 @@
             return;
         }
 
-        // Held still. Is this something we have not already read?
-        if (this.sent && meanDelta(now, this.sent) < this.noveltyMin) {
+        // Held still. Is this something we have not already read? A forced read skips both of
+        // these questions, but never the stillness check — a blurred frame is worth nothing.
+        if (!this.force && this.sent && meanDelta(now, this.sent) < this.noveltyMin) {
             this.setState(Date.now() - this.steadySince > this.nudgeMs ? 'nothing_new' : 'steadying');
             return;
         }
-        if (Date.now() - this.lastSentAt < this.cooldownMs) { return; }
+        if (!this.force && Date.now() - this.lastSentAt < this.cooldownMs) { return; }
 
         var self = this;
         this.busy = true;
         this.setState('capturing');
+        this.force = false;
         this.camera.capture(1, this.maxEdge).then(function (file) {
             self.sent = now;
             self.lastSentAt = Date.now();

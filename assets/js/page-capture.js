@@ -86,7 +86,14 @@
         }
         if (this.stream) { return Promise.resolve(); }
         return navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { ideal: 'environment' }, width: { ideal: 2560 }, height: { ideal: 1440 } },
+            // A question paper is portrait, so ask for the widest sensible frame rather than a
+            // tight 16:9 crop, and let the browser pick the closest mode it has.
+            video: {
+                facingMode: { ideal: 'environment' },
+                width: { ideal: 1920 },
+                height: { ideal: 1920 },
+                aspectRatio: { ideal: 1 }
+            },
             audio: false
         }).then(function (stream) {
             self.stream = stream;
@@ -116,6 +123,42 @@
         return toJpeg(v, v.videoWidth, v.videoHeight, maxEdge).then(function (blob) {
             return new File([blob], 'page-' + (index || 1) + '.jpg', { type: 'image/jpeg' });
         });
+    };
+
+    PageCamera.prototype.track = function () {
+        return this.stream ? this.stream.getVideoTracks()[0] || null : null;
+    };
+
+    /**
+     * Optical/digital zoom range, when the camera exposes one (Android Chrome does; iOS Safari
+     * does not). Returns null when zoom cannot be controlled — move the camera instead.
+     */
+    PageCamera.prototype.zoomRange = function () {
+        var t = this.track();
+        if (!t || !t.getCapabilities) { return null; }
+        var caps;
+        try { caps = t.getCapabilities(); } catch (e) { return null; }
+        if (!caps || !caps.zoom || caps.zoom.max <= caps.zoom.min) { return null; }
+        var settings = (t.getSettings && t.getSettings()) || {};
+        return {
+            min: caps.zoom.min,
+            max: caps.zoom.max,
+            step: caps.zoom.step || (caps.zoom.max - caps.zoom.min) / 50,
+            value: typeof settings.zoom === 'number' ? settings.zoom : caps.zoom.min
+        };
+    };
+
+    PageCamera.prototype.setZoom = function (value) {
+        var t = this.track();
+        if (!t || !t.applyConstraints) { return Promise.resolve(false); }
+        return t.applyConstraints({ advanced: [{ zoom: value }] }).then(function () { return true; },
+            function () { return false; });
+    };
+
+    /** Widest field of view the camera allows, so a whole page fits without backing away. */
+    PageCamera.prototype.zoomOut = function () {
+        var r = this.zoomRange();
+        return r ? this.setZoom(r.min).then(function () { return r.min; }) : Promise.resolve(null);
     };
 
     PageCamera.prototype.stop = function () {

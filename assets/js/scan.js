@@ -16,8 +16,9 @@
         cam: $('sc-cam'), video: $('sc-video'), camHint: $('sc-cam-hint'),
         shoot: $('sc-shoot'), camClose: $('sc-cam-close'), camOpen: $('sc-cam-open'),
         pick: $('sc-pick'), file: $('sc-file'),
-        liveStart: $('sc-live-start'), liveStop: $('sc-live-stop'),
-        liveStatus: $('sc-live-status'), liveText: $('sc-live-text'),
+        liveStart: $('sc-live-start'), liveStop: $('sc-live-stop'), next: $('sc-next'),
+        liveStatus: $('sc-live-status'), liveText: $('sc-live-text'), liveMode: $('sc-live-mode'),
+        zoomWrap: $('sc-zoom-wrap'), zoom: $('sc-zoom'), zoomIn: $('sc-zoom-in'), zoomOut: $('sc-zoom-out'),
         pages: $('sc-pages'), pagesHint: $('sc-pages-hint'),
         error: $('sc-error'),
         hint: $('sc-hint'), ins: $('sc-ins'),
@@ -194,6 +195,7 @@
 
     var LIVE_TEXT = {
         searching:   'Looking for questions — hold the camera over the page',
+        waiting_next: 'Done with this part — scroll on, then press Scan next part',
         steadying:   'Hold still…',
         capturing:   'Reading this part…',
         reading:     'Reading this part…',
@@ -203,6 +205,11 @@
     function paintLive(state, extra) {
         ui.liveStatus.hidden = false;
         ui.liveStatus.setAttribute('data-state', state);
+        // In part-by-part mode the button is the only way on, so it stays put; in automatic mode it
+        // is an override for when the next question looks too much like the last one to be noticed.
+        ui.next.hidden = !liveRunning();
+        ui.next.disabled = state === 'capturing' || state === 'reading';
+        ui.next.textContent = state === 'waiting_next' ? 'Scan next part' : 'Scan this part now';
         var found = S.liveFound
             ? ' · ' + S.liveFound + ' question' + (S.liveFound === 1 ? '' : 's') + ' found'
             : '';
@@ -228,6 +235,7 @@
 
         S.camera = S.camera || new window.PageCamera(ui.video);
         S.live = new window.LiveScanner(S.camera, {
+            manual: liveModeManual(),
             onState: function (state) { paintLive(state); },
             onCapture: readLiveFrame
         });
@@ -236,10 +244,14 @@
         ui.shoot.hidden = true;
         ui.liveStop.hidden = false;
         ui.liveStatus.hidden = false;
-        ui.camHint.textContent = 'Scroll slowly and pause for a moment on each question. Questions appear below as they are read.';
+        ui.liveMode.hidden = false;
+        ui.camHint.textContent = 'Fit the whole page in the frame, then scroll slowly. Questions appear below as they are read.';
         paintLive('searching');
 
-        S.live.start().catch(function (e) {
+        S.live.start().then(function () {
+            // Start as wide as the camera allows, so a full page fits without backing away from it.
+            return S.camera.zoomOut().then(paintZoom);
+        }).catch(function (e) {
             stopLive();
             showError(e.message);
         });
@@ -251,6 +263,9 @@
         ui.shoot.hidden = false;
         ui.liveStop.hidden = true;
         ui.liveStatus.hidden = true;
+        ui.liveMode.hidden = true;
+        ui.next.hidden = true;
+        ui.zoomWrap.hidden = true;
         ui.camHint.textContent = 'Hold the camera straight above the page so all four corners are inside the frame.';
         if (S.liveFound) {
             App.toast(S.liveFound + ' question' + (S.liveFound === 1 ? '' : 's') + ' scanned. Answer them below.', 'success');
@@ -331,6 +346,58 @@
         });
         paintCount();
     }
+
+    // ---- zoom (only some cameras expose it; Android Chrome does, iOS Safari does not)
+    function paintZoom() {
+        var r = S.camera && S.camera.zoomRange();
+        if (!r) {
+            ui.zoomWrap.hidden = true;
+            return;
+        }
+        ui.zoomWrap.hidden = false;
+        ui.zoom.min = r.min;
+        ui.zoom.max = r.max;
+        ui.zoom.step = r.step;
+        ui.zoom.value = r.value;
+    }
+
+    function applyZoom(value) {
+        if (!S.camera) { return; }
+        var r = S.camera.zoomRange();
+        if (!r) { return; }
+        var v = Math.min(r.max, Math.max(r.min, value));
+        ui.zoom.value = v;
+        S.camera.setZoom(v);
+        // The framing changed, so whatever was read before no longer describes this view.
+        if (S.live) { S.live.sent = null; }
+    }
+
+    ui.zoom.addEventListener('input', function () { applyZoom(parseFloat(ui.zoom.value)); });
+    ui.zoomOut.addEventListener('click', function () {
+        var r = S.camera && S.camera.zoomRange();
+        if (r) { applyZoom(parseFloat(ui.zoom.value) - r.step * 4); }
+    });
+    ui.zoomIn.addEventListener('click', function () {
+        var r = S.camera && S.camera.zoomRange();
+        if (r) { applyZoom(parseFloat(ui.zoom.value) + r.step * 4); }
+    });
+
+    // ---- keep scanning vs part by part
+    function liveModeManual() {
+        var picked = ui.liveMode.querySelector('input[name="sc-mode-live"]:checked');
+        return !!picked && picked.value === 'manual';
+    }
+
+    Array.prototype.forEach.call(ui.liveMode.querySelectorAll('input[name="sc-mode-live"]'), function (r) {
+        r.addEventListener('change', function () {
+            if (S.live) { S.live.setManual(liveModeManual()); }
+        });
+    });
+
+    ui.next.addEventListener('click', function () {
+        if (!S.live) { return; }
+        if (S.live.nextPart()) { paintLive('searching', 'Hold still — reading the next part…'); }
+    });
 
     ui.liveStart.addEventListener('click', startLive);
     ui.liveStop.addEventListener('click', stopLive);

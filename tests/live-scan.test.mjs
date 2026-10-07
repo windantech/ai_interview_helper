@@ -116,6 +116,67 @@ console.log('\nCooldown and markSeen');
     check('markSeen stops a fruitless view being retried', t.captured.length === 1, `sent ${t.captured.length}`);
 }
 
+console.log('\nStep by step');
+{
+    const s = makeScanner({ manual: true });
+    await feed(s, view(10)); await feed(s, view(10)); await feed(s, view(10));
+    check('reads the first view without being asked', s.captured.length === 1, `sent ${s.captured.length}`);
+    s.setBusy(false);
+    check('then waits to be told to continue', s.waiting() && s.state === 'waiting_next', s.state);
+
+    // Scroll to new content: in step mode that alone must NOT trigger a read.
+    await feed(s, view(200)); await feed(s, view(200)); await feed(s, view(200));
+    check('new content alone does not advance it', s.captured.length === 1, `sent ${s.captured.length}`);
+
+    check('Scan next part is accepted', s.nextPart() === true && !s.waiting());
+    await feed(s, view(200)); await feed(s, view(200));
+    check('and it reads the next part', s.captured.length === 2, `sent ${s.captured.length}`);
+    s.setBusy(false);
+    check('parks again after each part', s.waiting());
+}
+
+console.log('\nForcing a read of a view that looks familiar');
+{
+    const s = makeScanner({ cooldownMs: 100000 });
+    await feed(s, view(10)); await feed(s, view(10)); await feed(s, view(10));
+    s.setBusy(false);
+    // Same view, and inside the cooldown: automatic mode would skip both.
+    await feed(s, view(10)); await feed(s, view(10));
+    check('skipped on its own', s.captured.length === 1);
+    s.nextPart();
+    await feed(s, view(10)); await feed(s, view(10));
+    check('Scan next part overrides novelty and cooldown', s.captured.length === 2, `sent ${s.captured.length}`);
+
+    // ...but never the stillness check: a blurred frame is worth nothing.
+    s.setBusy(false);
+    s.nextPart();
+    await feed(s, view(10)); await feed(s, view(240)); await feed(s, view(10));
+    check('a forced read still waits for the view to settle', s.captured.length === 2, `sent ${s.captured.length}`);
+    await feed(s, view(10)); await feed(s, view(10));
+    check('and fires once it does', s.captured.length === 3, `sent ${s.captured.length}`);
+}
+
+console.log('\nSwitching modes mid-scan');
+{
+    const s = makeScanner({ manual: true });
+    await feed(s, view(10)); await feed(s, view(10)); await feed(s, view(10));
+    s.setBusy(false);
+    check('parked in step mode', s.waiting());
+    s.setManual(false);
+    check('switching to automatic releases the pause', !s.waiting());
+    await feed(s, view(200)); await feed(s, view(200)); await feed(s, view(200));
+    check('and it keeps scanning on its own', s.captured.length === 2, `sent ${s.captured.length}`);
+}
+
+console.log('\nnextPart is ignored while a read is in flight');
+{
+    const s = makeScanner();
+    await feed(s, view(10)); await feed(s, view(10)); await feed(s, view(10));
+    check('read in flight', s.busy === true && s.captured.length === 1);
+    check('nextPart refuses while busy', s.nextPart() === false);
+    check('no extra read queued', s.captured.length === 1);
+}
+
 console.log('\nLifecycle');
 {
     const s = makeScanner();
