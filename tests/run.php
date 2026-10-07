@@ -294,6 +294,24 @@ check('scan payload: rubric/timing text excluded from questions', str_contains($
 check('scan payload: never invent a question', str_contains($sp['instructions'], 'never invent one that is not on the page'));
 check('scan payload: unreadable pages reported, not guessed', str_contains($sp['instructions'], 'unreadable'));
 $one = ScanService::buildPayload([ScanService::imageInput($page1)]);
+$livePayload = ScanService::buildPayload([ScanService::imageInput($page1)], $scanJob, null, '', true);
+$liveText = json_encode($livePayload);
+check('live frames are told they are mid-scroll', str_contains($liveText, 'being scrolled past'));
+check('live frames skip questions cut off at the edge', str_contains($liveText, 'runs off the top or bottom edge'));
+check('live frames return nothing rather than guess at blur', str_contains($liveText, 'Ignore blurred text rather than guessing')
+    && str_contains($liveText, 'Returning nothing is correct'));
+check('a deliberate capture is not told any of that', !str_contains($spText, 'being scrolled past'));
+check('live and deliberate captures share one schema', $livePayload['text']['format'] === $sp['text']['format']);
+
+check('dedupe key ignores case, spacing and punctuation',
+    ScanService::dedupeKey('Discuss  how you would manage a LATE project.') === ScanService::dedupeKey('discuss how you would manage a late project'));
+check('dedupe key still separates different questions',
+    ScanService::dedupeKey('Describe a conflict you resolved.') !== ScanService::dedupeKey('Describe a project you delivered.'));
+check('normalise dedupes with that same key', count(ScanService::normalise(['questions' => [
+    ['number' => '1', 'text' => 'Discuss how you would manage a late project.', 'marks' => '', 'question_type' => 'general'],
+    ['number' => '1', 'text' => '  discuss   how you would manage a LATE project!  ', 'marks' => '', 'question_type' => 'general'],
+]])['questions']) === 1);
+
 check('single page prompt differs from multi-page', str_contains(json_encode($one), 'is one page of a question paper') && !str_contains(json_encode($one), 'consecutive pages'));
 check('scan payload without a job still valid', ($one['text']['format']['strict'] ?? false) === true && count($one['input'][0]['content']) === 2);
 check('PDF pages go through the Files API, not a data URL', str_contains(file_get_contents(APP_ROOT . '/app/Services/ScanService.php'), "'type' => 'input_file', 'file_id' => $fileId"));

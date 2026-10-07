@@ -49,6 +49,8 @@ return [
         'cv_upload'        => [12, 3600],
         'practice'         => [40, 60],
         'scan_extract'     => [20, 600],
+        // Live scanning sends a frame whenever the view settles on something new.
+        'scan_live'        => [90, 600],
         'api_general'      => [120, 60],
     ],
 ];

@@ -34,7 +34,7 @@ final class ScanService
      * @param string $vocab names/terms from the CV and job — see InterviewService::vocabularyHint()
      * @return array<string,mixed> {document_type, document_title, instructions_text, notes, questions: list<...>}
      */
-    public function extract(int $userId, array $pages, ?array $job = null, ?string $hint = null, string $vocab = ''): array
+    public function extract(int $userId, array $pages, ?array $job = null, ?string $hint = null, string $vocab = '', bool $live = false): array
     {
         if (!$pages) {
             throw new HttpException(400, 'Please add at least one page to scan.');
@@ -52,7 +52,7 @@ final class ScanService
                     $inputs[] = self::imageInput($page);
                 }
             }
-            $payload = self::buildPayload($inputs, $job, $hint, $vocab);
+            $payload = self::buildPayload($inputs, $job, $hint, $vocab, $live);
             $model = (string) $payload['model'];
 
             $res = $this->ai->createResponse($payload, 150);
@@ -96,10 +96,10 @@ final class ScanService
      * @param list<array<string,string>> $inputs one content block per page, in page order
      * @return array<string,mixed>
      */
-    public static function buildPayload(array $inputs, ?array $job = null, ?string $hint = null, string $vocab = ''): array
+    public static function buildPayload(array $inputs, ?array $job = null, ?string $hint = null, string $vocab = '', bool $live = false): array
     {
         $content = $inputs;
-        $content[] = ['type' => 'input_text', 'text' => self::taskText(count($inputs), $job, $hint, $vocab)];
+        $content[] = ['type' => 'input_text', 'text' => self::taskText(count($inputs), $job, $hint, $vocab, $live)];
 
         $payload = [
             'model'        => (string) config('openai.scan_model'),
@@ -121,11 +121,18 @@ final class ScanService
         return $payload;
     }
 
-    public static function taskText(int $pageCount, ?array $job, ?string $hint, string $vocab = ''): string
+    public static function taskText(int $pageCount, ?array $job, ?string $hint, string $vocab = '', bool $live = false): string
     {
-        $lines = [$pageCount === 1
-            ? 'The image above is one page of a question paper. Extract every question on it.'
-            : "The $pageCount images above are consecutive pages of the same question paper, in order. Extract every question across all of them, numbered continuously, and never list the same question twice."];
+        $lines = [match (true) {
+            // Live framing: the camera is being held over a document that is scrolling past, so the
+            // top and bottom of the frame usually cut through a question that another frame will show whole.
+            $live => 'The image above is a single frame from a camera held over a question paper that is being scrolled past. '
+                . 'Extract only the questions that are fully visible in this frame. '
+                . 'IGNORE any question whose text runs off the top or bottom edge, or that is cut off mid-sentence — a later frame will show it complete. '
+                . 'Ignore blurred text rather than guessing at it. Returning nothing is correct when no question is fully readable.',
+            $pageCount === 1 => 'The image above is one page of a question paper. Extract every question on it.',
+            default => "The $pageCount images above are consecutive pages of the same question paper, in order. Extract every question across all of them, numbered continuously, and never list the same question twice.",
+        }];
         // Names from the CV and job help the model read project names and jargon correctly.
         $vocab = trim($vocab);
         if ($job) {
@@ -216,7 +223,7 @@ TXT;
             if (mb_strlen($text) < 8) {
                 continue;
             }
-            $key = mb_strtolower(preg_replace('/[^\p{L}\p{N}]+/u', '', $text) ?? $text);
+            $key = self::dedupeKey($text);
             if (isset($seen[$key])) {
                 continue;
             }
@@ -240,6 +247,15 @@ TXT;
             'notes'             => $s($d['notes'] ?? '', 400),
             'questions'         => $questions,
         ];
+    }
+
+    /**
+     * Identity of a question, ignoring punctuation, spacing and case. Frames of a live scan overlap
+     * heavily, so the same question is read again and again with small OCR differences.
+     */
+    public static function dedupeKey(string $text): string
+    {
+        return mb_strtolower(preg_replace('/[^\p{L}\p{N}]+/u', '', $text) ?? $text);
     }
 
     /** Short label for the session title, e.g. "Scan: Essay paper — Management". */

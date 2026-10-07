@@ -362,6 +362,7 @@ check('practice pages render', noPhpErrors($c->get('practice.php')['body']));
 
 // =================================================================== SCAN
 section('Scan a question paper');
+$scanSessions = fn () => (int) pdo()->query("SELECT COUNT(*) FROM interview_sessions WHERE user_id = $uid AND session_type = 'scan'")->fetchColumn();
 $r = $c->get('scan.php');
 check('scan page renders', $r['status'] === 200 && str_contains($r['body'], 'sc-capture') && noPhpErrors($r['body']));
 check('scan page does not leak the API key', !str_contains($r['body'], 'sk-test-key'));
@@ -422,6 +423,32 @@ $r = $c->api('api/generate-answer.php', ['session_id' => $scanSid, 'transcript' 
 check('scanned text is never dropped by the speech prefilter', ($r['json']['data']['is_question'] ?? false) === true, $r['body']);
 pdo()->exec("DELETE FROM interview_questions WHERE session_id = $scanSid AND question LIKE '%project lifecycle%'");
 
+// Live scanning: frames are appended to the scan already in progress, and only what is new is kept.
+$liveStart = $c->uploadMany('api/scan-extract.php', 'pages', [[$pageJpg, 'frame.jpg', 'image/jpeg']], ['live' => '1', 'job_id' => (string) $jobId]);
+$liveSid = (int) ($liveStart['json']['data']['session']['id'] ?? 0);
+check('a live frame opens the scan', $liveStart['status'] === 201 && $liveSid > 0 && count($liveStart['json']['data']['questions'] ?? []) === 3, $liveStart['body']);
+check('live frames are told they are mid-scroll', str_contains(json_encode(lastMock('/responses')['json']), 'being scrolled past'));
+
+$r = $c->uploadMany('api/scan-extract.php', 'pages', [[$pageJpg, 'frame.jpg', 'image/jpeg']], ['live' => '1', 'session_id' => (string) $liveSid]);
+check('an overlapping frame adds nothing', $r['status'] === 200 && ($r['json']['data']['added'] ?? -1) === 0 && ($r['json']['data']['nothing_new'] ?? false) === true, $r['body']);
+check('no duplicate rows written', (int) pdo()->query("SELECT COUNT(*) FROM interview_questions WHERE session_id = $liveSid")->fetchColumn() === 3);
+check('the running total comes back', ($r['json']['data']['total'] ?? 0) === 3);
+
+// A frame showing something new appends only that.
+pdo()->exec("DELETE FROM interview_questions WHERE session_id = $liveSid AND question LIKE '%stakeholder communication%'");
+$r = $c->uploadMany('api/scan-extract.php', 'pages', [[$pageJpg, 'frame.jpg', 'image/jpeg']], ['live' => '1', 'session_id' => (string) $liveSid]);
+check('a frame with new content appends just that', ($r['json']['data']['added'] ?? 0) === 1
+    && str_contains($r['json']['data']['questions'][0]['text'] ?? '', 'stakeholder communication'), $r['body']);
+check('appended questions are answerable', ($c->api('api/generate-answer.php', ['session_id' => $liveSid, 'question_id' => (int) $r['json']['data']['questions'][0]['id'], 'source' => 'scan'])['json']['data']['is_question'] ?? false) === true);
+
+$beforeBlank = $scanSessions();
+$r = $c->uploadMany('api/scan-extract.php', 'pages', [[$pagePng, 'frame.jpg', 'image/jpeg']], ['live' => '1', 'session_id' => (string) $liveSid, 'hint' => 'This is a blank page.']);
+check('an unreadable frame is not an error, just nothing new', $r['status'] === 200 && ($r['json']['data']['nothing_new'] ?? false) === true, $r['body']);
+check('a blurred frame opens no session of its own', $scanSessions() === $beforeBlank);
+
+$r = $c->uploadMany('api/scan-extract.php', 'pages', [[$pageJpg, 'frame.jpg', 'image/jpeg']], ['live' => '1', 'session_id' => (string) $sid]);
+check('live frames cannot be appended to a non-scan session', $r['status'] === 404);
+
 // The interview screen scans a question into the interview already running.
 $sessionsBefore = (int) pdo()->query("SELECT COUNT(*) FROM interview_sessions WHERE user_id = $uid")->fetchColumn();
 $r = $c->uploadMany('api/scan-extract.php', 'pages', [[$pagePng, 'page-1.png', 'image/png']], ['extract_only' => '1', 'job_id' => (string) $jobId]);
@@ -447,9 +474,10 @@ $r = $c->api('api/scan-extract.php', []);
 check('scan with no pages rejected (400)', $r['status'] === 400);
 $r = $c->uploadMany('api/scan-extract.php', 'pages', array_fill(0, 9, [$pagePng, 'page.png', 'image/png']));
 check('too many pages rejected (422)', $r['status'] === 422 && str_contains($r['json']['message'] ?? '', 'up to 8 pages'), $r['body']);
+$beforeUnreadable = $scanSessions();
 $r = $c->uploadMany('api/scan-extract.php', 'pages', [[$pagePng, 'page-1.png', 'image/png']], ['hint' => 'This is a blank page.']);
 check('unreadable page → friendly 422, no session created', $r['status'] === 422 && ($r['json']['error_kind'] ?? '') === 'no_questions' && str_contains($r['json']['message'] ?? '', 'read that page'), $r['body']);
-check('failed scan did not open a session', (int) pdo()->query("SELECT COUNT(*) FROM interview_sessions WHERE user_id = $uid AND session_type = 'scan'")->fetchColumn() === 1);
+check('failed scan did not open a session', $scanSessions() === $beforeUnreadable);
 
 $filesDeleted = fn () => count(array_filter(mockCalls(), fn ($m) => $m['method'] === 'DELETE' && str_starts_with($m['route'], '/files/')));
 $deletesBefore = $filesDeleted();
@@ -458,7 +486,9 @@ check('a PDF paper scans too', $r['status'] === 201 && count($r['json']['data'][
 $pdfScanSid = (int) $r['json']['data']['session']['id'];
 check('PDF sent as an OpenAI file input', str_contains(json_encode(lastMock('/responses')['json']), 'input_file'));
 check('temporary OpenAI file deleted after the scan', $filesDeleted() === $deletesBefore + 1, $filesDeleted() . ' vs ' . $deletesBefore);
-check('starting a new scan closes the previous one', pdo()->query("SELECT status FROM interview_sessions WHERE id = $scanSid")->fetchColumn() === 'ended');
+check('starting a new scan closes the one before it', pdo()->query("SELECT status FROM interview_sessions WHERE id = $liveSid")->fetchColumn() === 'ended');
+$r = $c->uploadMany('api/scan-extract.php', 'pages', [[$pageJpg, 'frame.jpg', 'image/jpeg']], ['live' => '1', 'session_id' => (string) $liveSid]);
+check('live frames cannot be appended to a closed scan', $r['status'] === 409, $r['body']);
 
 $r = $c->get("history.php?id=$pdfScanSid");
 check('scanned paper appears in history, labelled', $r['status'] === 200 && str_contains($r['body'], 'Scanned paper') && noPhpErrors($r['body']));

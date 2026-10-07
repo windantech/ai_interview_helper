@@ -43,7 +43,7 @@ A mobile-first PHP + MySQL web app that answers interview questions from your ow
   - **Your instructions for this interview:** an optional panel where you tell the AI what to use, e.g. *"When asked for a sample project, use finKAP — I built the loan module and integrated M-Pesa."* They are sent with every question, can be edited mid-interview, are carried over to your next interview for the same job, and are shown in History.
   - **Three ways to get a question in:** **Listen**, **Type question**, or **Scan question** — photograph the question with the camera (or pick a photo) and it goes straight into the interview in progress. If the page holds several questions you tap the one being asked. All three use the same answer pipeline.
   - **Type question instead** uses the same pipeline. You can ask several questions per session, change the answer mode to regenerate, copy the answer, or end the interview.
-- **Scan a question paper (camera or file):** photograph a sheet of questions — a printed interview question list, an application form, an essay or exam paper, an assignment — and the app reads every question off it and answers them. See [Scanning a question paper](#scanning-a-question-paper).
+- **Scan a question paper (live camera, photo or file):** hold the camera over the page and scroll — questions are read as they pass, with no shutter button — or capture pages one at a time. Works on a printed interview question list, an application form, an essay or exam paper, an assignment. See [Scanning a question paper](#scanning-a-question-paper).
 - **History:** sessions with date, job, company, question count and duration. You can search and filter by job, date or type (interview, practice or scanned paper), open a session to see every Q&A, and delete one session or all history.
 - **Practice mode:** the AI asks tailored questions one at a time. Speak or type your answer, or skip. You get a score, strengths, missing points, a better structure, delivery tips (repetition, opening with your approach, precision), the filler words you used with counts, likely mis-heard phrases (a sign you're speaking too fast), and an improved example answer. "Show approach" shows the suggested answer for that question.
 - **Settings:** profile, password, default answer style, short/medium detail, default interview type, transcription mode, auto-detect, show transcript, save history, AI usage and estimated cost, and deleting your CV, your history or your account (which removes all rows and files).
@@ -69,11 +69,46 @@ There are two ways in, for two different situations:
 
 **Flow**
 
-1. **Capture.** Use the rear camera (live preview, one tap per page) or choose image files or a PDF. Up to 8 pages per scan (`MAX_SCAN_PAGES`); camera frames are downscaled to 2000 px and re-encoded as JPEG in the browser, so uploads stay small and the text stays readable.
+1. **Capture**, whichever suits the material:
+   - **Live scan** — hold the camera over the page and scroll. Frames are read continuously and questions appear in the list as they are found, so there is no shutter button and no page count. See [How live scanning decides what to read](#how-live-scanning-decides-what-to-read).
+   - **Single photo** — capture a page at a time, up to 8 per scan (`MAX_SCAN_PAGES`).
+   - **Choose files** — photos, or a PDF of the whole paper.
+
+   Camera frames are downscaled in the browser (2000 px for a deliberate photo, 1600 px for a live frame) and re-encoded as JPEG, so uploads stay small and the text stays readable.
 2. **Scan.** All pages go to `POST /v1/responses` in a single call with `input_image` data URLs (a PDF goes through the Files API as an `input_file` and is deleted again straight away). Multi-page papers keep their numbering and any question continued across a page break. The model returns strict JSON: the document type, its title, paper-wide directions ("Answer any three questions"), notes, and the questions with their printed numbers and marks.
 3. **Review.** Every question is listed with its number, marks and type. OCR is not perfect, so you can **edit** any question or **add** one the scan missed. Editing a question clears the answer stored for it.
 4. **Answer.** Answer one question, or **Answer all** and watch each answer stream in; **Stop** halts after the current one. Answers reuse the same engine as the live interview — your CV profile, the target job, your own instructions, and the questions already answered on this paper (so it does not reuse the same example twice).
 5. **Keep.** A scan is its own session in History, named after the paper. **Copy all** puts every answer on the clipboard; **Finish paper** closes the session. A part-answered paper is picked up where you left off next time you open the scan page.
+
+
+### How live scanning decides what to read
+
+Sending every frame to a vision model would be slow, expensive and mostly pointless: during a scroll
+most frames are motion-blurred, and once you stop, every frame shows text that was already read. So
+the browser watches the camera and sends a frame only when all of these hold:
+
+1. **The view has stopped moving.** Each tick (~350 ms) a 64×48 luma thumbnail is compared with the
+   previous one. Two consecutive still ticks mean the text is sharp rather than smeared.
+2. **It is not what was read last.** The settled thumbnail is compared with the thumbnail of the
+   frame last sent. If they are close, you are still looking at the same text and nothing is sent.
+3. **Nothing is already in flight,** and the cooldown since the last send has passed.
+
+In practice that means roughly one request per pause — you scroll, stop on a question, it is read,
+you scroll on. The status strip over the preview tells you which of those states you are in
+("Hold still…", "Reading this part…", "Nothing new here — scroll to the next question").
+
+Frames are told they are mid-scroll, so the model **skips any question cut off at the top or bottom
+edge** (a later frame will show it whole) and returns nothing rather than guessing at blurred text.
+An empty frame is a normal answer, not an error.
+
+Each frame posts to the scan session already open, and the server keeps only the questions that
+session does not already hold — matched on text with punctuation, spacing and case ignored, since
+overlapping frames re-read the same question with small OCR differences. Live frames get their own
+rate limit (`scan_live`, 90 per 10 minutes) because they are sent far more often than a deliberate
+capture.
+
+> Live scanning costs one vision call per settled view. A long document is many calls — watch your
+> usage in Settings the first time you scan something big.
 
 **Answer style** — `Auto` reads the paper and decides: spoken talking points for an interview question list, written prose for anything you have to write on. You can force it with `Written`, `Quick`, `STAR` or `Technical`.
 
@@ -257,13 +292,13 @@ Browsers only allow `getUserMedia` (the microphone and the camera) in a **secure
 ├── assets/
 │   ├── css/app.css
 │   ├── js/         app.js recorder.js realtime.js interview.js answer-render.js
-│   │                page-capture.js scan.js practice.js cv.js jobs.js history.js
+│   │                page-capture.js live-scan.js scan.js practice.js cv.js jobs.js history.js
 │   └── images/favicon.svg
 ├── config/         app.php database.php openai.php
 ├── database/       schema.sql demo-data.sql migrations/
 ├── storage/        users/{id}/cv/ (private CVs), audio/ (temporary), logs/
 ├── views/          layouts/ partials/ components/ pages/ auth/ errors/
-├── tests/          run.php (unit), integration.php, browser/ui-test.mjs, mock-openai.php, run-all.sh, run-browser.sh
+├── tests/          run.php (unit), integration.php, live-scan.test.mjs, browser/ui-test.mjs, mock-openai.php, run-all.sh, run-browser.sh
 ├── .env.example .gitignore .htaccess .user.ini composer.json README.md
 ```
 
@@ -281,7 +316,7 @@ All endpoints require a signed-in session. POST requests require the `X-CSRF-Tok
 | `api/realtime-session.php` | POST | — | Returns `{client_secret, expires_at, model, calls_url}` |
 | `api/transcribe.php` | POST multipart | `audio`, `session_id` | webm/wav/mp3/m4a, validated with finfo |
 | `api/generate-answer.php` | POST JSON | `session_id, transcript, mode, source[, question_id, stream]` | Answers one question, spoken or written. `mode`: auto, quick, star, technical, leadership, written. `source`: live, recorded, typed, practice, scan. Returns `{is_question, question, answer, question_id}`. With `stream:true` it replies with Server-Sent Events: `delta` text chunks, then `done` |
-| `api/scan-extract.php` | POST multipart | `pages[]` (1–8 images, or one PDF), `job_id`, `hint`, `instructions`, `extract_only` | Reads a question paper. Returns `{session, document, questions:[{id, number, text, marks, question_type}], saved}` and opens a `scan` session. With `extract_only=1` it returns the questions only — no session, nothing stored (used by the interview screen) |
+| `api/scan-extract.php` | POST multipart | `pages[]` (1–8 images, or one PDF), `job_id`, `hint`, `instructions`, `session_id`, `extract_only`, `live` | Reads a question paper. Returns `{session, document, questions:[{id, number, text, marks, question_type}], saved}`. Default: opens a `scan` session. With `session_id` it appends only the questions that session lacks and returns those plus `{added, total, nothing_new}` — live scanning posts a frame at a time this way. With `extract_only=1` it returns the questions and stores nothing (the interview screen). `live=1` tells the model it is seeing one frame of a scroll |
 | `api/scan-question.php` | POST JSON | `session_id, text[, question_id, number]` | Corrects a mis-read question or adds one the scan missed. Editing clears that question's stored answer |
 | `api/start-session.php` / `end-session.php` | POST JSON | `job_id, type` / `session_id` | `type`: live or practice (a `scan` session is opened by `scan-extract.php`) |
 | `api/upload-cv.php` / `delete-cv.php` / `reprocess-cv.php` | POST | multipart `cv` / — | |
@@ -330,7 +365,8 @@ With `"answer_mode": "written"` the shape is the same, but each string in `secti
 The automated suites run in Docker (MySQL 8.4 + PHP 8.3 + a mock OpenAI server), so they never touch your real database, your `storage/` folder or your OpenAI account:
 
 ```bash
-bash tests/run-all.sh        # unit + end-to-end HTTP tests
+bash tests/run-all.sh        # unit + end-to-end HTTP tests (also runs tests/live-scan.test.mjs)
+node tests/live-scan.test.mjs  # live-scan frame selection on its own — no Docker, no dependencies
 bash tests/run-browser.sh    # headless-Chromium checks: responsive sweep + fake-microphone interview flow
 ```
 
@@ -340,6 +376,7 @@ Coverage includes:
 - creating, editing, deleting and selecting jobs
 - interview sessions: transcript, answer, second question with context, small-talk rejection, mode switching, ended sessions
 - scanning a question into a live interview (`extract_only`: no session opened, nothing stored, answer saved to the interview)
+- live scanning: which frames are sent (still, new, not overlapping, cooldown), appending only unseen questions to the open scan, blurred frames treated as "nothing new" rather than errors, and appends rejected on a non-scan or finished session
 - scanning a question paper: multi-page and PDF scans, page-format validation (an executable or SVG renamed `.png` is rejected), questions stored unanswered then answered in written mode, correcting and adding questions, unreadable pages, temporary OpenAI files deleted, scan sessions in history, and ownership checks
 - history search and filters, practice mode, settings, access control between users, password reset, full account deletion
 - OpenAI 401, 403, 429, quota, 500, timeout, invalid JSON, refusal and malformed structured output
@@ -359,6 +396,7 @@ The PHP unit tests also run without Docker: `php tests/run.php`.
 | Microphone button errors on a phone | The site must be on **HTTPS**. Check the browser's site permissions for the microphone. |
 | "Microphone access was blocked" | Allow the microphone via the padlock or camera icon in the address bar, then press Try again. |
 | "Camera access was blocked" on the Scan page | Allow the camera via the padlock in the address bar, or use **Choose files** and upload a photo taken with your phone's camera app. |
+| Live scan finds nothing while you scroll | Pause for about a second on each question — frames are only read once the view settles. If it says "Nothing new here", the view has not changed enough since the last read; scroll further. |
 | Scan returns "We couldn't find any questions on that page" | Re-shoot the page: fill the frame, keep it flat and square to the camera, and avoid shadow across the text. Then check the extracted list and add anything missing. |
 | CV upload fails with "too large" below 10 MB | Raise `upload_max_filesize` / `post_max_size` in the PHP settings (see `.user.ini`). |
 | "Your session has expired. Please refresh" | The CSRF token expired. Reload the page. |
@@ -375,6 +413,7 @@ The PHP unit tests also run without Docker: `php tests/run.php`.
 - CV analysis runs synchronously during upload, which takes about 5–30 s depending on the model and CV length.
 - Legacy `.doc` files are parsed on a best-effort basis locally, otherwise via OpenAI file input. DOCX or PDF give the best results.
 - Cost estimates use the prices in `OPENAI_PRICING` and are approximate.
+- Live scanning needs a reasonably steady hand and decent light. Scroll slowly and pause on each question; if the status strip sits on "Hold still…" the camera is being moved too much for the text to be sharp.
 - Scanning is only as good as the photo. A page shot at an angle, in poor light or with the edges cropped loses questions, so check the extracted list — and correct or add questions — before answering. Dense handwriting is the hardest case.
 - A scan reads at most 8 pages and 40 questions at a time. A longer paper takes more than one scan.
 - `OPENAI_SCAN_MODEL` must be vision-capable. A text-only model returns an error from the Responses API.

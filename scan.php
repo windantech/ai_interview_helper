@@ -52,5 +52,5 @@ View::page('pages/scan', [
         'maxPageBytes' => (int) config('app.max_scan_page_bytes'),
         'maxQuestions' => ScanService::MAX_QUESTIONS,
     ],
-    'scripts'   => ['answer-render.js', 'page-capture.js', 'scan.js'],
+    'scripts'   => ['answer-render.js', 'page-capture.js', 'live-scan.js', 'scan.js'],
 ]);

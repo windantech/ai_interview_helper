@@ -62,21 +62,29 @@ $modes = options_for('scan_answer_mode');
     </div>
 
     <div class="sc-cam" id="sc-cam" hidden>
-        <div class="sc-cam-frame">
+        <div class="sc-cam-frame" id="sc-cam-frame">
             <video id="sc-video" playsinline muted autoplay></video>
             <span class="sc-guide" aria-hidden="true"></span>
+            <p class="sc-live-status" id="sc-live-status" hidden aria-live="polite">
+                <span class="sc-live-dot" aria-hidden="true"></span><span id="sc-live-text">Starting…</span>
+            </p>
         </div>
         <p class="hint center" id="sc-cam-hint">Hold the camera straight above the page so all four corners are inside the frame.</p>
         <div class="btn-row center">
             <button type="button" class="btn btn-primary btn-lg" id="sc-shoot"><?= icon('camera') ?> Capture page</button>
+            <button type="button" class="btn btn-danger btn-lg" id="sc-live-stop" hidden><?= icon('stop') ?> Stop scanning</button>
             <button type="button" class="btn btn-ghost" id="sc-cam-close">Close camera</button>
         </div>
     </div>
 
     <div class="sc-sources" id="sc-sources">
+        <button type="button" class="sc-source sc-source-main" id="sc-live-start">
+            <?= icon('scan') ?>
+            <span><strong>Live scan</strong><small>Hold the camera over the page and scroll — questions are read as they pass</small></span>
+        </button>
         <button type="button" class="sc-source" id="sc-cam-open">
             <?= icon('camera') ?>
-            <span><strong>Use camera</strong><small>Take a photo of the page</small></span>
+            <span><strong>Single photo</strong><small>Capture a page at a time</small></span>
         </button>
         <button type="button" class="sc-source" id="sc-pick">
             <?= icon('image') ?>
@@ -113,7 +121,7 @@ $modes = options_for('scan_answer_mode');
         <p id="sc-busy-text">Reading the page…</p>
     </div>
 
-    <p class="hint small notice-line"><?= icon('shield') ?> Page photos are sent to OpenAI to read the questions and are not stored. Use only where permitted.</p>
+    <p class="hint small notice-line"><?= icon('shield') ?> Camera frames are sent to OpenAI to read the questions and are not stored. Use only where permitted.</p>
 </section>
 
 <!-- ============ STEP 2: questions + answers ============ -->

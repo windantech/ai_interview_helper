@@ -25,6 +25,15 @@ if ! docker ps --format '{{.Names}}' | grep -q "^$DB$"; then
   sleep 2
 fi
 
+# Live-scan frame selection is plain JS with no dependencies, so it runs on the host rather than
+# inside the PHP container.
+if command -v node >/dev/null 2>&1; then
+  echo "Live scan (frame selection)…"
+  node tests/live-scan.test.mjs || exit 1
+else
+  echo "(node not found — skipping tests/live-scan.test.mjs)"
+fi
+
 echo "Importing schema…"
 docker exec -i "$DB" mysql -uicp -picp_pw interview_copilot_test < database/schema.sql 2>&1 | grep -v "Using a password" || true
 

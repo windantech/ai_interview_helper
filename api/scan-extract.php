@@ -3,12 +3,19 @@
 declare(strict_types=1);
 
 /*
- * POST /api/scan-extract.php  (multipart: pages[]=<image|pdf>, job_id?, hint?, instructions?, extract_only?)
- * Reads a photographed/uploaded question paper and extracts every question on it.
+ * POST /api/scan-extract.php
+ *   multipart: pages[]=<image|pdf>, job_id?, hint?, instructions?, extract_only?, session_id?, live?
  *
- * By default it also opens a "scan" session holding those questions (the Scan page, working
- * through a whole paper). With extract_only=1 it just returns them and stores nothing — the
- * interview screen uses that to pull one question into the interview already in progress.
+ * Reads a photographed/uploaded question paper and extracts every question on it. Three modes:
+ *
+ *   (default)       opens a "scan" session holding the questions — the Scan page capturing a paper.
+ *   session_id=N    appends only the questions that session does not already hold, and returns
+ *                   those. Live scanning sends a frame at a time this way.
+ *   extract_only=1  returns the questions and stores nothing — the interview screen pulling one
+ *                   question into the interview already in progress.
+ *
+ * live=1 tells the model it is seeing one frame of a document being scrolled past, so it skips
+ * questions cut off at the frame edge and returns nothing rather than guessing at blurred text.
  *
  * The answers themselves come from /api/generate-answer.php, one question at a time
  * (pass question_id for stored questions, transcript otherwise).
@@ -35,7 +42,11 @@ use App\Services\ScanService;
 Api::handle(function (): void {
     $user = Api::postGuard();
     $userId = (int) $user['id'];
-    RateLimiter::enforce('scan_extract', 'u' . $userId);
+
+    // A live scan sends one frame at a time whenever the view settles on something new, so it needs
+    // a looser budget than a deliberate multi-page capture.
+    $live = filter_var($_POST['live'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    RateLimiter::enforce($live ? 'scan_live' : 'scan_extract', 'u' . $userId);
     @set_time_limit(240);
 
     if (empty($_FILES) && (int) ($_SERVER['CONTENT_LENGTH'] ?? 0) > 0) {
@@ -73,10 +84,28 @@ Api::handle(function (): void {
         Settings::update($userId, ['active_job_id' => (int) $job['id']]);
     }
 
+    // Appending to a scan already in progress: each live frame adds whatever is new on it.
+    $session = null;
+    if (!empty($_POST['session_id'])) {
+        $session = InterviewSession::findForUser((int) $_POST['session_id'], $userId);
+        if (!$session || $session['session_type'] !== 'scan') {
+            throw new HttpException(404, 'Scan not found. Please start a new scan.');
+        }
+        if ($session['status'] !== 'active') {
+            throw new HttpException(409, 'That scan has been finished. Start a new one to keep scanning.');
+        }
+    }
+
     $hint = is_string($_POST['hint'] ?? null) ? $_POST['hint'] : null;
     // Project names, employers and tools from the CV and job, so the model reads jargon correctly.
     $vocab = InterviewService::vocabularyHint($userId, $job, 300);
-    $doc = (new ScanService())->extract($userId, $pages, $job, $hint, $vocab);
+    $doc = (new ScanService())->extract($userId, $pages, $job, $hint, $vocab, $live);
+
+    // A live frame that shows nothing readable is normal — the camera is still moving, or the page
+    // is between questions. Answer "nothing new" rather than treating it as a failure.
+    if ($live && !$doc['questions']) {
+        Response::success(['session' => $session ? ['id' => (int) $session['id']] : null, 'questions' => [], 'added' => 0, 'nothing_new' => true]);
+    }
 
     if (!$doc['questions']) {
         $what = count($pages) === 1 ? 'that page' : 'those pages';
@@ -97,6 +126,46 @@ Api::handle(function (): void {
         'written'           => $doc['written_answer_expected'],
         'pages'             => count($pages),
     ];
+
+    // Appending to a running scan: keep only the questions it does not already hold. Frames of a
+    // live scan overlap heavily, so most of what each one reads is already on the list.
+    if ($session !== null) {
+        $known = [];
+        // (A session only exists when history saving is on, so the rows are safe to write.)
+        foreach (InterviewSession::questionTexts((int) $session['id']) as $text) {
+            $known[ScanService::dedupeKey($text)] = true;
+        }
+        $room = ScanService::MAX_QUESTIONS - count($known);
+        $added = [];
+        foreach ($doc['questions'] as $q) {
+            if ($room <= 0) {
+                break;
+            }
+            $key = ScanService::dedupeKey($q['text']);
+            if (isset($known[$key])) {
+                continue;
+            }
+            $known[$key] = true;
+            $room--;
+            $added[] = $q + ['id' => InterviewSession::addQuestion((int) $session['id'], [
+                'question'        => $q['text'],
+                'question_number' => $q['number'] !== '' ? $q['number'] : null,
+                'question_type'   => $q['question_type'],
+                'answer_mode'     => 'auto',
+                'source'          => 'scan',
+            ])];
+        }
+        Response::success([
+            'session'     => ['id' => (int) $session['id']],
+            'document'    => $document,
+            'questions'   => $added,
+            'added'       => count($added),
+            'total'       => count($known),
+            'full'        => $room <= 0,
+            'nothing_new' => $added === [],
+            'saved'       => true,
+        ]);
+    }
 
     // The interview screen scans a question into the interview already in progress, so it asks for
     // the questions only: no session of its own, nothing stored until an answer is generated.

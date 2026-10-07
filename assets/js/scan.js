@@ -16,6 +16,8 @@
         cam: $('sc-cam'), video: $('sc-video'), camHint: $('sc-cam-hint'),
         shoot: $('sc-shoot'), camClose: $('sc-cam-close'), camOpen: $('sc-cam-open'),
         pick: $('sc-pick'), file: $('sc-file'),
+        liveStart: $('sc-live-start'), liveStop: $('sc-live-stop'),
+        liveStatus: $('sc-live-status'), liveText: $('sc-live-text'),
         pages: $('sc-pages'), pagesHint: $('sc-pages-hint'),
         error: $('sc-error'),
         hint: $('sc-hint'), ins: $('sc-ins'),
@@ -35,6 +37,9 @@
         questions: (cfg.questions || []).map(function (q) { return normQ(q); }),
         doc: null,
         camera: null,
+        live: null,                // LiveScanner while a live scan is running
+        liveSeen: {},              // dedupe key -> true, so a repeat frame is cheap to ignore
+        liveFound: 0,
         scanning: false,
         preparing: false,
         runningAll: false,
@@ -69,6 +74,7 @@
         ui.scan.disabled = on || S.pages.length === 0;
         ui.camOpen.disabled = on;
         ui.pick.disabled = on;
+        ui.liveStart.disabled = on;
     }
 
     function renderPages() {
@@ -126,6 +132,7 @@
 
     ui.camOpen.addEventListener('click', function () {
         showError('');
+        if (liveRunning()) { stopLive(); }
         S.camera = S.camera || new window.PageCamera(ui.video);
         ui.cam.hidden = false;
         S.camera.start().then(function () {
@@ -137,6 +144,7 @@
     });
 
     function closeCamera() {
+        if (liveRunning()) { stopLive(); return; }
         if (S.camera) { S.camera.stop(); }
         ui.cam.hidden = true;
     }
@@ -176,6 +184,156 @@
     });
 
     ui.clear.addEventListener('click', clearPages);
+
+    // ================================================================ live scanning
+    /*
+     * Hold the camera over the page and scroll: frames are read as they settle, and whatever is new
+     * on each one is appended to the question list. The first frame that finds anything opens the
+     * scan session; later frames post to it, and the server drops what the session already holds.
+     */
+
+    var LIVE_TEXT = {
+        searching:   'Looking for questions — hold the camera over the page',
+        steadying:   'Hold still…',
+        capturing:   'Reading this part…',
+        reading:     'Reading this part…',
+        nothing_new: 'Nothing new here — scroll to the next question'
+    };
+
+    function paintLive(state, extra) {
+        ui.liveStatus.hidden = false;
+        ui.liveStatus.setAttribute('data-state', state);
+        var found = S.liveFound
+            ? ' · ' + S.liveFound + ' question' + (S.liveFound === 1 ? '' : 's') + ' found'
+            : '';
+        ui.liveText.textContent = (extra || LIVE_TEXT[state] || 'Scanning…') + found;
+    }
+
+    function liveRunning() {
+        return !!(S.live && S.live.running());
+    }
+
+    function startLive() {
+        if (liveRunning()) { return; }
+        if (!window.LiveScanner || !window.LiveScanner.supported()) {
+            showError(window.isSecureContext
+                ? 'This browser cannot scan live. Use Single photo or Choose files instead.'
+                : 'Live scanning needs HTTPS. Use Choose files instead.');
+            return;
+        }
+        showError('');
+        clearPages();
+        S.liveSeen = {};
+        S.liveFound = 0;
+
+        S.camera = S.camera || new window.PageCamera(ui.video);
+        S.live = new window.LiveScanner(S.camera, {
+            onState: function (state) { paintLive(state); },
+            onCapture: readLiveFrame
+        });
+
+        ui.cam.hidden = false;
+        ui.shoot.hidden = true;
+        ui.liveStop.hidden = false;
+        ui.liveStatus.hidden = false;
+        ui.camHint.textContent = 'Scroll slowly and pause for a moment on each question. Questions appear below as they are read.';
+        paintLive('searching');
+
+        S.live.start().catch(function (e) {
+            stopLive();
+            showError(e.message);
+        });
+    }
+
+    function stopLive() {
+        if (S.live) { S.live.stop(); S.live = null; }
+        ui.cam.hidden = true;
+        ui.shoot.hidden = false;
+        ui.liveStop.hidden = true;
+        ui.liveStatus.hidden = true;
+        ui.camHint.textContent = 'Hold the camera straight above the page so all four corners are inside the frame.';
+        if (S.liveFound) {
+            App.toast(S.liveFound + ' question' + (S.liveFound === 1 ? '' : 's') + ' scanned. Answer them below.', 'success');
+        }
+    }
+
+    /** One settled frame: read it and append whatever is new. */
+    function readLiveFrame(file) {
+        var form = new FormData();
+        form.append('pages[]', file, 'frame.jpg');
+        form.append('live', '1');
+        if (S.sessionId) { form.append('session_id', String(S.sessionId)); }
+        if (ui.job.value) { form.append('job_id', ui.job.value); }
+        if (ui.hint.value.trim()) { form.append('hint', ui.hint.value.trim()); }
+        form.append('instructions', ui.ins.value.trim());
+
+        App.api('api/scan-extract.php', { form: form, timeout: 90000 }).then(function (d) {
+            if (d.session && d.session.id) {
+                S.sessionId = d.session.id;
+                ui.end.hidden = false;
+            }
+            if (d.document && !S.doc) {
+                S.doc = d.document;
+                S.doc.live = true;
+                renderDoc();
+            }
+
+            var fresh = (d.questions || []).filter(function (q) {
+                var key = dedupeKey(q.text);
+                if (S.liveSeen[key]) { return false; }
+                S.liveSeen[key] = true;
+                return true;
+            });
+            if (fresh.length) {
+                addQuestions(fresh);
+                S.liveFound += fresh.length;
+                ui.result.hidden = false;
+            } else if (S.live) {
+                S.live.markSeen();   // this view is read out; wait for the page to move on
+            }
+            if (d.full) {
+                stopLive();
+                App.toast('That is the maximum of ' + cfg.maxQuestions + ' questions for one scan.', 'info');
+                return;
+            }
+            if (S.live) { S.live.setBusy(false); }
+        }).catch(function (e) {
+            if (S.live) { S.live.setBusy(false); }
+            // A frame failing is not fatal — the next one will try again. Stop only on a hard error.
+            if (e.status === 429) {
+                paintLive('searching', 'Slowing down…');
+            } else if (e.status === 401 || e.status === 403 || e.kind === 'quota' || e.kind === 'auth' || e.kind === 'not_configured') {
+                stopLive();
+                showError(e.message);
+            } else {
+                paintLive('searching', 'That frame could not be read — keep going');
+            }
+        });
+    }
+
+    /** Mirrors ScanService::dedupeKey so a repeat frame costs nothing on the client either. */
+    function dedupeKey(text) {
+        return String(text || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+    }
+
+    /** Append newly-found questions without rebuilding the list (answers may be streaming). */
+    function addQuestions(qs) {
+        if (!S.questions.length) {
+            S.questions = qs.map(normQ);
+            renderList();
+            return;
+        }
+        var addRow = ui.list.querySelector('.sc-add');
+        qs.forEach(function (q) {
+            S.questions.push(normQ(q));
+            var li = renderItem(S.questions[S.questions.length - 1], S.questions.length - 1);
+            if (addRow) { ui.list.insertBefore(li, addRow); } else { ui.list.appendChild(li); }
+        });
+        paintCount();
+    }
+
+    ui.liveStart.addEventListener('click', startLive);
+    ui.liveStop.addEventListener('click', stopLive);
 
     // ================================================================ scanning
 
@@ -228,7 +386,8 @@
         if (!S.doc) { ui.doc.hidden = true; return; }
         ui.doc.hidden = false;
         ui.docTitle.textContent = S.doc.title || S.doc.type_label;
-        var bits = [S.doc.type_label, S.doc.pages + ' page' + (S.doc.pages === 1 ? '' : 's')];
+        var bits = [S.doc.type_label];
+        bits.push(S.doc.live ? 'Live scan' : S.doc.pages + ' page' + (S.doc.pages === 1 ? '' : 's'));
         if (S.doc.instructions_text) { bits.push(S.doc.instructions_text); }
         ui.docMeta.textContent = bits.join(' · ');
         ui.docNote.hidden = !S.doc.notes;
@@ -526,7 +685,10 @@
         App.toast('The new target job applies to the next paper you scan.', 'info');
     });
 
-    window.addEventListener('pagehide', closeCamera);
+    window.addEventListener('pagehide', function () {
+        if (S.live) { S.live.stop(); S.live = null; }
+        closeCamera();
+    });
 
     // ================================================================ init
     if (!window.PageCamera.supported()) {

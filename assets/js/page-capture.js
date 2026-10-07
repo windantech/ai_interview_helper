@@ -15,9 +15,9 @@
         return e;
     }
 
-    /** Draw a source (video or image) onto a canvas no larger than MAX_EDGE and return a JPEG blob. */
-    function toJpeg(source, width, height) {
-        var scale = Math.min(1, MAX_EDGE / Math.max(width, height));
+    /** Draw a source (video or image) onto a canvas no larger than maxEdge and return a JPEG blob. */
+    function toJpeg(source, width, height, maxEdge) {
+        var scale = Math.min(1, (maxEdge || MAX_EDGE) / Math.max(width, height));
         var canvas = document.createElement('canvas');
         canvas.width = Math.max(1, Math.round(width * scale));
         canvas.height = Math.max(1, Math.round(height * scale));
@@ -108,12 +108,12 @@
     };
 
     /** Grab the current frame as a downscaled JPEG File. */
-    PageCamera.prototype.capture = function (index) {
+    PageCamera.prototype.capture = function (index, maxEdge) {
         var v = this.video;
         if (!this.stream || !v.videoWidth) {
             return Promise.reject(err('not_ready', 'The camera is still starting. Try again in a moment.'));
         }
-        return toJpeg(v, v.videoWidth, v.videoHeight).then(function (blob) {
+        return toJpeg(v, v.videoWidth, v.videoHeight, maxEdge).then(function (blob) {
             return new File([blob], 'page-' + (index || 1) + '.jpg', { type: 'image/jpeg' });
         });
     };
