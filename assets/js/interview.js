@@ -577,6 +577,193 @@
         b.addEventListener('click', openTypedForm);
     });
 
+    // ================================================================ scanned questions
+    /*
+     * A third way to get a question in, next to Listen and Type: photograph the question.
+     * This pulls it into the interview already in progress (extract_only, so no scan session is
+     * opened and nothing is stored until the answer is generated). Whole papers go to scan.php.
+     */
+
+    var sc = {
+        modal: $('scan-modal'), sub: $('iv-scan-sub'), cam: $('iv-cam'), video: $('iv-video'),
+        pages: $('iv-pages'), error: $('iv-scan-error'), picks: $('iv-scan-picks'),
+        busy: $('iv-scan-busy'), busyText: $('iv-scan-busy-text'),
+        shoot: $('iv-shoot'), pick: $('iv-pick'), read: $('iv-scan-read'),
+        retake: $('iv-scan-retake'), close: $('iv-scan-close'), file: $('iv-file')
+    };
+    var scan = { camera: null, page: null, url: null, closeModal: null, busyNow: false };
+
+    function scanError(msg) {
+        sc.error.textContent = msg || '';
+        sc.error.hidden = !msg;
+    }
+
+    function scanBusy(on, text) {
+        scan.busyNow = on;
+        sc.busy.hidden = !on;
+        if (text) { sc.busyText.textContent = text; }
+        [sc.shoot, sc.pick, sc.read, sc.retake].forEach(function (b) { b.disabled = on; });
+    }
+
+    /** No page captured yet → capture controls; one captured → preview + Read. */
+    function paintScan() {
+        var has = !!scan.page;
+        sc.pages.textContent = '';
+        sc.pages.hidden = !has;
+        if (has) {
+            sc.pages.appendChild(App.el('li', { 'class': 'sc-page' }, [
+                scan.url ? App.el('img', { src: scan.url, alt: 'Captured question' }) : null
+            ]));
+        }
+        sc.shoot.hidden = has || !window.PageCamera.supported();
+        sc.pick.hidden = has;
+        sc.read.hidden = !has;
+        sc.retake.hidden = !has;
+        sc.sub.textContent = has
+            ? 'Check the question is readable, then press Read question.'
+            : 'Point the camera at the question, or choose a photo. The whole question must be inside the frame.';
+    }
+
+    function clearScanPage() {
+        if (scan.url) { URL.revokeObjectURL(scan.url); }
+        scan.page = null;
+        scan.url = null;
+        sc.picks.hidden = true;
+        sc.picks.textContent = '';
+        paintScan();
+    }
+
+    function stopScanCamera() {
+        if (scan.camera) { scan.camera.stop(); }
+        sc.cam.hidden = true;
+    }
+
+    function openScan() {
+        if (S.state === 'listening' || S.state === 'connecting') { cancelListening(); }
+        hideTypedForm();
+        scanError('');
+        scanBusy(false);
+        clearScanPage();
+        scan.closeModal = App.modal(sc.modal, function () {
+            stopScanCamera();
+            clearScanPage();
+        });
+        if (!window.PageCamera.supported()) {
+            scanError(window.isSecureContext
+                ? 'This browser cannot use the camera. Choose a photo instead.'
+                : 'Camera access requires HTTPS. Choose a photo instead.');
+            return;
+        }
+        scan.camera = scan.camera || new window.PageCamera(sc.video);
+        sc.cam.hidden = false;
+        scan.camera.start().catch(function (e) {
+            sc.cam.hidden = true;
+            scanError(e.message);
+        });
+    }
+
+    function closeScan() {
+        if (scan.closeModal) { scan.closeModal(); scan.closeModal = null; }
+    }
+
+    sc.shoot.addEventListener('click', function () {
+        if (!scan.camera || !scan.camera.active()) { scanError('The camera is not running. Choose a photo instead.'); return; }
+        var restore = App.busy(sc.shoot, 'Capturing…');
+        scan.camera.capture(1).then(function (file) {
+            restore();
+            scanError('');
+            scan.page = file;
+            scan.url = URL.createObjectURL(file);
+            stopScanCamera();
+            paintScan();
+            sc.read.focus();
+        }).catch(function (e) { restore(); scanError(e.message); });
+    });
+
+    sc.pick.addEventListener('click', function () { sc.file.click(); });
+    sc.file.addEventListener('change', function () {
+        var file = (sc.file.files || [])[0];
+        sc.file.value = '';
+        if (!file) { return; }
+        scanError('');
+        scanBusy(true, 'Preparing the photo…');
+        window.PageCamera.prepareFile(file).then(function (prepared) {
+            scanBusy(false);
+            if (prepared.size > (cfg.maxScanPageBytes || 8388608)) {
+                scanError('That photo is too large. Take it again with the camera, or use a smaller image.');
+                return;
+            }
+            scan.page = prepared;
+            scan.url = URL.createObjectURL(prepared);
+            stopScanCamera();
+            paintScan();
+        }, function () { scanBusy(false); scanError('That photo could not be read.'); });
+    });
+
+    sc.retake.addEventListener('click', function () {
+        scanError('');
+        clearScanPage();
+        if (window.PageCamera.supported()) {
+            scan.camera = scan.camera || new window.PageCamera(sc.video);
+            sc.cam.hidden = false;
+            scan.camera.start().catch(function (e) { sc.cam.hidden = true; scanError(e.message); });
+        }
+    });
+
+    sc.read.addEventListener('click', function () {
+        if (!scan.page || scan.busyNow) { return; }
+        scanError('');
+        sc.picks.hidden = true;
+        sc.picks.textContent = '';
+        scanBusy(true, 'Reading the question…');
+
+        var form = new FormData();
+        form.append('pages[]', scan.page, scan.page.name || 'question.jpg');
+        form.append('extract_only', '1');
+        if (S.jobId) { form.append('job_id', String(S.jobId)); }
+
+        App.api('api/scan-extract.php', { form: form, timeout: 120000 }).then(function (d) {
+            scanBusy(false);
+            var qs = d.questions || [];
+            if (qs.length === 1) {
+                useScannedQuestion(qs[0].text);
+            } else {
+                offerScannedQuestions(qs);
+            }
+        }).catch(function (e) {
+            scanBusy(false);
+            scanError(e.message + (e.data && e.data.notes ? ' (' + e.data.notes + ')' : ''));
+        });
+    });
+
+    /** Several questions on the page: let the candidate pick the one being asked. */
+    function offerScannedQuestions(qs) {
+        sc.picks.textContent = '';
+        qs.forEach(function (q) {
+            var b = App.el('button', { type: 'button', 'class': 'iv-scan-pick' }, [
+                q.number ? App.el('span', { 'class': 'sc-num', text: q.number }) : null,
+                App.el('span', { text: q.text })
+            ]);
+            b.addEventListener('click', function () { useScannedQuestion(q.text); });
+            sc.picks.appendChild(App.el('li', null, [b]));
+        });
+        sc.picks.hidden = false;
+        sc.sub.textContent = qs.length + ' questions on that page — tap the one being asked.';
+        sc.read.hidden = true;
+    }
+
+    function useScannedQuestion(text) {
+        closeScan();
+        destroyEngine();
+        requestAnswer(text, 'scan', null);
+    }
+
+    sc.close.addEventListener('click', closeScan);
+    Array.prototype.forEach.call(document.querySelectorAll('[data-open-scan]'), function (b) {
+        b.addEventListener('click', openScan);
+    });
+    window.addEventListener('pagehide', stopScanCamera);
+
     // ================================================================ controls
 
     ui.mic.addEventListener('click', function () {

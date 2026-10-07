@@ -41,6 +41,7 @@ A mobile-first PHP + MySQL web app that answers interview questions from your ow
   - **CV evidence vs. approach:** facts from your CV are shown separately from the suggested approach, and the model is instructed never to invent experience.
   - The transcript is shown first, then the answer **streams in section by section** while it is written. Every line is a complete first-person sentence you can read aloud; job keywords are bold and any `[fill-in]` gaps are highlighted.
   - **Your instructions for this interview:** an optional panel where you tell the AI what to use, e.g. *"When asked for a sample project, use finKAP — I built the loan module and integrated M-Pesa."* They are sent with every question, can be edited mid-interview, are carried over to your next interview for the same job, and are shown in History.
+  - **Three ways to get a question in:** **Listen**, **Type question**, or **Scan question** — photograph the question with the camera (or pick a photo) and it goes straight into the interview in progress. If the page holds several questions you tap the one being asked. All three use the same answer pipeline.
   - **Type question instead** uses the same pipeline. You can ask several questions per session, change the answer mode to regenerate, copy the answer, or end the interview.
 - **Scan a question paper (camera or file):** photograph a sheet of questions — a printed interview question list, an application form, an essay or exam paper, an assignment — and the app reads every question off it and answers them. See [Scanning a question paper](#scanning-a-question-paper).
 - **History:** sessions with date, job, company, question count and duration. You can search and filter by job, date or type (interview, practice or scanned paper), open a session to see every Q&A, and delete one session or all history.
@@ -51,6 +52,11 @@ A mobile-first PHP + MySQL web app that answers interview questions from your ow
 ## Scanning a question paper
 
 Instead of listening to one question at a time, you can point your camera at a page of questions. `scan.php` captures the pages, one OpenAI vision call reads **all of them together**, and every question it finds becomes an answerable item.
+
+There are two ways in, for two different situations:
+
+- **Scan question** on the interview screen — a third input mode beside Listen and Type, for grabbing *one* question mid-interview. It sends `extract_only=1`, so no scan session is opened and nothing is stored; the question you pick is answered in the interview already running and saved there with `source: scan`.
+- **The Scan page** (`scan.php`) — for working through a *whole* paper: multi-page capture, the full question list, Answer all, and a session of its own in History. The rest of this section describes that page.
 
 **What it handles**
 
@@ -93,6 +99,7 @@ transcript ──POST /api/generate-answer.php─▶ profile + job + recent Qs �
 (fallback) MediaRecorder WebM/M4A ──POST /api/transcribe.php─▶ ─────────────────▶ POST /v1/audio/transcriptions (gpt-transcribe)
 
 [Scan paper] camera frames / files ──POST /api/scan-extract.php─▶ validate pages ─▶ POST /v1/responses  (input_image × N, strict JSON)
+   (interview screen sends extract_only=1: same call, no session opened, nothing stored)
          ◀── { questions: [...] } ──── open a "scan" session, store questions ◀──
 then, per question ───POST /api/generate-answer.php (question_id) ──────────────▶ POST /v1/responses  (same answer engine)
 ```
@@ -274,7 +281,7 @@ All endpoints require a signed-in session. POST requests require the `X-CSRF-Tok
 | `api/realtime-session.php` | POST | — | Returns `{client_secret, expires_at, model, calls_url}` |
 | `api/transcribe.php` | POST multipart | `audio`, `session_id` | webm/wav/mp3/m4a, validated with finfo |
 | `api/generate-answer.php` | POST JSON | `session_id, transcript, mode, source[, question_id, stream]` | Answers one question, spoken or written. `mode`: auto, quick, star, technical, leadership, written. `source`: live, recorded, typed, practice, scan. Returns `{is_question, question, answer, question_id}`. With `stream:true` it replies with Server-Sent Events: `delta` text chunks, then `done` |
-| `api/scan-extract.php` | POST multipart | `pages[]` (1–8 images, or one PDF), `job_id`, `hint`, `instructions` | Reads a question paper. Returns `{session, document, questions:[{id, number, text, marks, question_type}], saved}` and opens a `scan` session |
+| `api/scan-extract.php` | POST multipart | `pages[]` (1–8 images, or one PDF), `job_id`, `hint`, `instructions`, `extract_only` | Reads a question paper. Returns `{session, document, questions:[{id, number, text, marks, question_type}], saved}` and opens a `scan` session. With `extract_only=1` it returns the questions only — no session, nothing stored (used by the interview screen) |
 | `api/scan-question.php` | POST JSON | `session_id, text[, question_id, number]` | Corrects a mis-read question or adds one the scan missed. Editing clears that question's stored answer |
 | `api/start-session.php` / `end-session.php` | POST JSON | `job_id, type` / `session_id` | `type`: live or practice (a `scan` session is opened by `scan-extract.php`) |
 | `api/upload-cv.php` / `delete-cv.php` / `reprocess-cv.php` | POST | multipart `cv` / — | |
@@ -332,6 +339,7 @@ Coverage includes:
 - PDF, DOCX and TXT uploads, invalid and oversized files, replace and delete, private-path blocking
 - creating, editing, deleting and selecting jobs
 - interview sessions: transcript, answer, second question with context, small-talk rejection, mode switching, ended sessions
+- scanning a question into a live interview (`extract_only`: no session opened, nothing stored, answer saved to the interview)
 - scanning a question paper: multi-page and PDF scans, page-format validation (an executable or SVG renamed `.png` is rejected), questions stored unanswered then answered in written mode, correcting and adding questions, unreadable pages, temporary OpenAI files deleted, scan sessions in history, and ownership checks
 - history search and filters, practice mode, settings, access control between users, password reset, full account deletion
 - OpenAI 401, 403, 429, quota, 500, timeout, invalid JSON, refusal and malformed structured output

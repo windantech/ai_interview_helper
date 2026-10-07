@@ -674,6 +674,21 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--p
 .sc-answer { margin: 0; box-shadow: none; border: 1px solid var(--border); }
 .sc-add { border-left-color: var(--border); background: var(--surface-2); }
 
+/* --- scanning a question from the interview screen --- */
+.iv-scan-panel .sc-cam-frame { aspect-ratio: 4 / 3; max-height: 46vh; }
+.iv-scan-panel .sc-pages { justify-content: center; }
+.iv-scan-panel .sc-page { width: 100%; max-width: 320px; height: auto; aspect-ratio: 4 / 3; }
+.iv-scan-panel .btn-row { margin-top: .9rem; }
+.iv-scan-panel .hint { margin: .75rem 0 0; }
+.iv-scan-picks { list-style: none; margin: .75rem 0 0; padding: 0; display: grid; gap: .4rem; max-height: 40vh; overflow-y: auto; }
+.iv-scan-pick {
+    display: flex; gap: .6rem; align-items: flex-start; width: 100%; min-height: 44px; text-align: left;
+    padding: .6rem .7rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface);
+    font: inherit; color: var(--text); cursor: pointer;
+}
+.iv-scan-pick:hover { border-color: var(--primary); background: var(--primary-50); }
+.iv-scan-pick .sc-num { flex: none; }
+
 /* ------------------------------------------------------------------ practice */
 .practice-bar { display: flex; justify-content: space-between; align-items: center; gap: .5rem; margin-bottom: 1rem; }
 #practice-stage > .card { margin-bottom: 1rem; }

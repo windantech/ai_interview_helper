@@ -14,6 +14,7 @@ $cfg = [
     'consented'        => $settings['mic_consent_at'] !== null,
     'realtimeEnabled'  => $config['realtimeEnabled'],
     'maxAudioBytes'    => $config['maxAudioBytes'],
+    'maxScanPageBytes' => $config['maxScanPageBytes'],
     'instructions'     => $instructions,
     'maxInstructions'  => \App\Models\InterviewSession::MAX_INSTRUCTIONS,
     'questions'        => array_map(fn ($q) => ['id' => (int) $q['id'], 'question' => $q['question'], 'answer' => $q['answer']], $questions),
@@ -117,6 +118,7 @@ $modes = options_for('answer_mode');
                     <div class="btn-row center">
                         <button type="button" class="btn btn-primary" id="retry-btn"><?= icon('refresh') ?> Try again</button>
                         <button type="button" class="btn btn-outline" data-open-typed><?= icon('keyboard') ?> Type question instead</button>
+                        <button type="button" class="btn btn-outline" data-open-scan><?= icon('scan') ?> Scan it instead</button>
                     </div>
                 </div>
             </div>
@@ -125,6 +127,7 @@ $modes = options_for('answer_mode');
                 <button type="button" class="btn btn-outline btn-sm" id="done-btn" hidden><?= icon('check') ?> Question finished</button>
                 <button type="button" class="btn btn-ghost btn-sm" id="cancel-btn" hidden><?= icon('x') ?> Cancel</button>
                 <button type="button" class="btn btn-ghost btn-sm" data-open-typed><?= icon('keyboard') ?> Type question</button>
+                <button type="button" class="btn btn-ghost btn-sm" data-open-scan><?= icon('scan') ?> Scan question</button>
             </div>
 
             <form class="typed-form" id="typed-form" hidden novalidate>
@@ -136,7 +139,7 @@ $modes = options_for('answer_mode');
                 </div>
             </form>
 
-            <p class="hint center small notice-line"><?= icon('shield') ?> Microphone access is used to transcribe interview questions. Use only where permitted.</p>
+            <p class="hint center small notice-line"><?= icon('shield') ?> Microphone and camera access are used to capture interview questions. Use only where permitted.</p>
         </section>
 
         <!-- ============ RIGHT: question + answer ============ -->
@@ -166,6 +169,43 @@ $modes = options_for('answer_mode');
                 <ol id="session-questions"></ol>
             </details>
         </section>
+    </div>
+</div>
+
+<!-- Scan a question into this interview -->
+<div class="modal" id="scan-modal" hidden>
+    <div class="modal-panel iv-scan-panel" role="dialog" aria-modal="true" aria-labelledby="iv-scan-title">
+        <h2 id="iv-scan-title"><?= icon('scan') ?> Scan a question</h2>
+        <p class="muted small" id="iv-scan-sub">Point the camera at the question, or choose a photo. The whole question must be inside the frame.</p>
+
+        <div class="sc-cam" id="iv-cam" hidden>
+            <div class="sc-cam-frame">
+                <video id="iv-video" playsinline muted autoplay></video>
+                <span class="sc-guide" aria-hidden="true"></span>
+            </div>
+        </div>
+
+        <ol class="sc-pages" id="iv-pages" hidden aria-label="Captured pages"></ol>
+        <div class="alert alert-error" id="iv-scan-error" hidden role="alert"></div>
+
+        <ul class="iv-scan-picks" id="iv-scan-picks" hidden aria-label="Questions found"></ul>
+
+        <div class="progress-block" id="iv-scan-busy" hidden role="status">
+            <div class="spinner" aria-hidden="true"></div>
+            <p id="iv-scan-busy-text">Reading the question…</p>
+        </div>
+
+        <div class="btn-row">
+            <button type="button" class="btn btn-primary" id="iv-shoot"><?= icon('camera') ?> Capture</button>
+            <button type="button" class="btn btn-outline" id="iv-pick"><?= icon('image') ?> Choose photo</button>
+            <button type="button" class="btn btn-primary" id="iv-scan-read" hidden><?= icon('scan') ?> Read question</button>
+            <button type="button" class="btn btn-ghost" id="iv-scan-retake" hidden>Retake</button>
+            <button type="button" class="btn btn-ghost" id="iv-scan-close">Cancel</button>
+        </div>
+        <input type="file" id="iv-file" accept="image/jpeg,image/png,image/webp" hidden>
+
+        <p class="hint small"><?= icon('shield') ?> The photo is sent to OpenAI to read the question and is not stored.
+            Working through a whole paper? <a href="<?= e(url('scan.php')) ?>">Use the Scan page</a>.</p>
     </div>
 </div>
 

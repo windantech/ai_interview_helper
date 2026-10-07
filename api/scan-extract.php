@@ -3,10 +3,15 @@
 declare(strict_types=1);
 
 /*
- * POST /api/scan-extract.php  (multipart: pages[]=<image|pdf>, job_id?, hint?, instructions?)
- * Reads a photographed/uploaded question paper, extracts every question on it and opens a
- * "scan" session holding them. The answers themselves come from /api/generate-answer.php,
- * one question at a time (pass question_id for saved questions, transcript otherwise).
+ * POST /api/scan-extract.php  (multipart: pages[]=<image|pdf>, job_id?, hint?, instructions?, extract_only?)
+ * Reads a photographed/uploaded question paper and extracts every question on it.
+ *
+ * By default it also opens a "scan" session holding those questions (the Scan page, working
+ * through a whole paper). With extract_only=1 it just returns them and stores nothing — the
+ * interview screen uses that to pull one question into the interview already in progress.
+ *
+ * The answers themselves come from /api/generate-answer.php, one question at a time
+ * (pass question_id for stored questions, transcript otherwise).
  *
  * Page images are processed in memory and never written to disk; a scanned PDF is stored only
  * for the length of the request and deleted again.
@@ -83,7 +88,28 @@ Api::handle(function (): void {
             ]);
     }
 
-    // The scan opens a session of its own so the paper and its answers stay grouped in history.
+    $document = [
+        'type'              => $doc['document_type'],
+        'type_label'        => label_for('document_type', $doc['document_type']),
+        'title'             => $doc['document_title'],
+        'instructions_text' => $doc['instructions_text'],
+        'notes'             => $doc['notes'],
+        'written'           => $doc['written_answer_expected'],
+        'pages'             => count($pages),
+    ];
+
+    // The interview screen scans a question into the interview already in progress, so it asks for
+    // the questions only: no session of its own, nothing stored until an answer is generated.
+    if (filter_var($_POST['extract_only'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        Response::success([
+            'session'   => null,
+            'document'  => $document,
+            'questions' => array_map(fn ($q) => $q + ['id' => null], $doc['questions']),
+            'saved'     => false,
+        ]);
+    }
+
+    // Otherwise the scan opens a session of its own so the paper and its answers stay grouped in history.
     $job = (new InterviewService())->ensureJobSummary($userId, $job);
     if (array_key_exists('instructions', $_POST)) {
         $instructions = is_string($_POST['instructions']) ? $_POST['instructions'] : null;
@@ -120,15 +146,7 @@ Api::handle(function (): void {
             'instructions' => $session['instructions'],
             'started_at'   => $session['started_at'],
         ],
-        'document' => [
-            'type'              => $doc['document_type'],
-            'type_label'        => label_for('document_type', $doc['document_type']),
-            'title'             => $doc['document_title'],
-            'instructions_text' => $doc['instructions_text'],
-            'notes'             => $doc['notes'],
-            'written'           => $doc['written_answer_expected'],
-            'pages'             => count($pages),
-        ],
+        'document'  => $document,
         'questions' => $questions,
         'saved'     => $save,
     ], 201);

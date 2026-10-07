@@ -422,6 +422,23 @@ $r = $c->api('api/generate-answer.php', ['session_id' => $scanSid, 'transcript' 
 check('scanned text is never dropped by the speech prefilter', ($r['json']['data']['is_question'] ?? false) === true, $r['body']);
 pdo()->exec("DELETE FROM interview_questions WHERE session_id = $scanSid AND question LIKE '%project lifecycle%'");
 
+// The interview screen scans a question into the interview already running.
+$sessionsBefore = (int) pdo()->query("SELECT COUNT(*) FROM interview_sessions WHERE user_id = $uid")->fetchColumn();
+$r = $c->uploadMany('api/scan-extract.php', 'pages', [[$pagePng, 'page-1.png', 'image/png']], ['extract_only' => '1', 'job_id' => (string) $jobId]);
+$eo = $r['json']['data'] ?? [];
+check('extract_only returns the questions', $r['status'] === 200 && count($eo['questions'] ?? []) === 3, $r['body']);
+check('extract_only opens no session', ($eo['session'] ?? 'x') === null
+    && (int) pdo()->query("SELECT COUNT(*) FROM interview_sessions WHERE user_id = $uid")->fetchColumn() === $sessionsBefore);
+check('extract_only stores no questions', array_column($eo['questions'], 'id') === [null, null, null]);
+check('extract_only still reports the document', ($eo['document']['type'] ?? '') === 'essay_exam');
+
+$r = $c->api('api/start-session.php', ['job_id' => $jobId, 'type' => 'live']);
+$ivSid = (int) $r['json']['data']['session']['id'];
+$r = $c->api('api/generate-answer.php', ['session_id' => $ivSid, 'transcript' => $eo['questions'][2]['text'], 'source' => 'scan']);
+check('a scanned question answers inside a live interview', ($r['json']['data']['is_question'] ?? false) === true, $r['body']);
+check('it is saved to that interview, tagged scan', (int) pdo()->query("SELECT COUNT(*) FROM interview_questions WHERE session_id = $ivSid AND source = 'scan'")->fetchColumn() === 1);
+$c->api('api/end-session.php', ['session_id' => $ivSid]);
+
 $r = $c->uploadMany('api/scan-extract.php', 'pages', [[$cvTxt, 'page.txt', 'text/plain']]);
 check('non-image page rejected (415)', $r['status'] === 415, $r['body']);
 $r = $c->uploadMany('api/scan-extract.php', 'pages', [[$evil, 'page.png', 'image/png']]);

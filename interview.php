@@ -46,6 +46,7 @@ View::page('pages/interview', [
     'config'    => [
         'realtimeEnabled' => (bool) config('openai.realtime_enabled'),
         'maxAudioBytes'   => (int) config('app.max_audio_size_bytes'),
+        'maxScanPageBytes' => (int) config('app.max_scan_page_bytes'),
     ],
-    'scripts'   => ['recorder.js', 'realtime.js', 'answer-render.js', 'interview.js'],
+    'scripts'   => ['recorder.js', 'realtime.js', 'answer-render.js', 'page-capture.js', 'interview.js'],
 ]);
