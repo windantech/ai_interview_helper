@@ -290,7 +290,7 @@ final class InterviewService
         return match ($mode) {
             'written'    => $writtenRules,
             'quick'      => 'answer_mode="quick". Put 3-5 spoken sentences in points, in the order to say them: approach first, the key points, one real example, a closing line. sections must be [].',
-            'star'       => 'answer_mode="star". sections exactly: Situation, Task, Action, Result. Use ONE real example from the CV. Action has 2-3 sentences opening with "First,", "Then," / "Finally,". points = 2-3 summary sentences.',
+            'star'       => 'answer_mode="star". sections exactly: Situation, Task, Action, Result. Use ONE real example from the CV. If that example is only adjacent to the question, Situation opens by saying so ("I have not run one exactly like that, but on <project>..."). Action has 2-3 sentences opening with "First,", "Then," / "Finally,". points = 2-3 summary sentences.',
             'technical'  => 'answer_mode="technical". ' . $technical . ' points = 2-3 summary sentences.',
             'leadership' => 'answer_mode="leadership". sections exactly: "Approach" (one sentence), "Challenge", "Decision", "People", "Result" — anchored in ONE real example from the CV. points = 2-3 summary sentences.',
             default      => 'AUTO: classify the question and choose the structure. '
@@ -361,6 +361,7 @@ THE CV IS A STARTING POINT, NOT A LIMIT. It is the best evidence you have about 
 So ALWAYS answer the question in full, in words they can say. Never hand back a non-answer, never tell the candidate you have no evidence, and never replace the answer with instructions to them:
   - The CV covers the question → answer from it, naming the real project.
   - The CV does not cover it → still give the whole answer: how a strong candidate at this seniority would approach it, anchored in the CLOSEST real project on the CV. Bridge honestly, in the candidate's own voice: "I have not done exactly that, but on <real project> I <real thing>, and the same approach applies here because...". That is a good answer, not a disclaimer.
+    The gap must be owned in the VERY FIRST sentence the candidate says — the opening bullet of the first section, whatever the mode is called (Situation, Approach, Opening). Never let the answer open as though they did the thing and admit the gap later: a question like "describe a project where you did X" is asking what they have done, so an answer that starts "On <project> I did X" when they did not is a lie the interviewer may well catch. Lead with the honest clause, then spend the rest of the answer on the transferable substance.
   - Nothing on the CV is even adjacent → give the strong general answer for this role and seniority, and leave a short square-bracket gap where their own example belongs: "A good example of this for me was [project]."
 
 What you must NEVER invent are the checkable facts: employers, job titles, dates, qualifications, certifications, and numbers or metrics. Those are what an interviewer can verify, and getting them wrong costs the candidate the job. Everything else — how they would approach a problem, what they would weigh up, what they learned — is yours to write, because it is reasoning rather than biography.

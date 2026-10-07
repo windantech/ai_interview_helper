@@ -191,6 +191,9 @@ check('every question gets a full answer', str_contains($sys, 'ALWAYS answer the
 check('uncovered questions bridge from the closest real project', str_contains($sys, 'anchored in the CLOSEST real project')
     && str_contains($sys, 'That is a good answer, not a disclaimer'));
 check('nothing adjacent → general answer with a gap to fill', str_contains($sys, 'leave a short square-bracket gap'));
+check('a bridged answer owns the gap in its first spoken sentence', str_contains($sys, 'VERY FIRST sentence the candidate says')
+    && str_contains($sys, 'is a lie the interviewer may well catch'));
+check('STAR bridges open honestly in Situation', str_contains($ptext, 'Situation opens by saying so'));
 check('adjacent evidence counts as evidence', str_contains($sys, 'shares the skill, the problem shape'));
 check('answers report how well the CV backs them', str_contains($sys, 'evidence_strength') && count(InterviewService::EVIDENCE_STRENGTHS) === 3);
 check('no-CV still answers rather than refusing', str_contains(InterviewService::candidateContext(null), 'Still answer every question in full'));
