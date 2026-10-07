@@ -55,7 +55,8 @@ if (!$isCli) {
     header('X-Content-Type-Options: nosniff');
     header('X-Frame-Options: DENY');
     header('Referrer-Policy: strict-origin-when-cross-origin');
-    header('Permissions-Policy: microphone=(self), camera=(), geolocation=()');
+    // camera: the Scan page photographs a question paper. geolocation stays off.
+    header('Permissions-Policy: microphone=(self), camera=(self), geolocation=()');
     header("Content-Security-Policy: default-src 'self'; script-src 'self'; "
         . "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; "
         . "img-src 'self' data: blob:; media-src 'self' blob:; "

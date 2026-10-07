@@ -22,8 +22,10 @@ use App\Models\UsageLog;
 final class InterviewService
 {
     public const QUESTION_TYPES = ['behavioural', 'technical', 'situational', 'leadership', 'competency', 'motivation', 'career_history', 'salary_hr', 'problem_solving', 'management', 'communication', 'general', 'unknown'];
-    public const ANSWER_MODES = ['quick', 'star', 'technical', 'leadership', 'general'];
-    public const USER_MODES = ['auto', 'quick', 'star', 'technical', 'leadership'];
+    public const ANSWER_MODES = ['quick', 'star', 'technical', 'leadership', 'general', 'written'];
+    public const USER_MODES = ['auto', 'quick', 'star', 'technical', 'leadership', 'written'];
+    /** Modes that produce a typed/written answer rather than lines to say out loud. */
+    public const WRITTEN_MODES = ['written'];
 
     private const MAX_JD_CHARS = 5000;
     private const MAX_CV_FALLBACK_CHARS = 9000;
@@ -128,7 +130,9 @@ final class InterviewService
         $transcript = trim(mb_substr(preg_replace('/\s+/u', ' ', $transcript) ?? $transcript, 0, 4000));
         $mode = in_array($mode, self::USER_MODES, true) ? $mode : (string) $settings['default_answer_mode'];
         $detail = (string) $settings['response_detail'];
-        $autoDetect = (bool) $settings['auto_detect_question'] && $source !== 'typed';
+        // Auto-detection is a filter for live speech only: typed, practice and scanned questions
+        // were handed to us deliberately, so they are always treated as questions.
+        $autoDetect = (bool) $settings['auto_detect_question'] && in_array($source, ['live', 'recorded'], true);
 
         if ($transcript === '') {
             throw new HttpException(422, "We couldn't hear the question clearly.", ['error_kind' => 'empty']);
@@ -153,7 +157,11 @@ final class InterviewService
         $questionId = null;
         if ($existingQuestionId !== null) {
             $questionId = $existingQuestionId;
-            InterviewSession::updateQuestion($existingQuestionId, ['answer_json' => $answer, 'answer_mode' => $mode]);
+            InterviewSession::updateQuestion($existingQuestionId, [
+                'answer_json'   => $answer,
+                'answer_mode'   => $answer['answer_mode'],
+                'question_type' => $answer['question_type'],
+            ]);
         } elseif ($settings['save_history']) {
             $questionId = InterviewSession::addQuestion((int) $session['id'], [
                 'question'       => $answer['question'],
@@ -218,14 +226,20 @@ final class InterviewService
             }
             $turn[] = '';
         }
+        $written = self::isWritten($mode);
         $turn[] = '## ANSWER SETTINGS';
         $turn[] = 'Requested mode: ' . strtoupper($mode) . ' — ' . self::modeInstruction($mode);
-        $turn[] = 'Detail level: ' . ($detail === 'medium'
-            ? 'MEDIUM — 2-3 sentences per section, each sentence up to ~22 words.'
-            : 'SHORT — 1-2 sentences per section (Action may have 3), each sentence up to ~18 words.');
-        $turn[] = $autoDetect
-            ? 'The text below is a live speech transcript. It may contain filler, small talk or background talk. Set is_question=false if it does not contain an interview question directed at the candidate.'
-            : 'The candidate typed this question themselves: treat it as a question (is_question=true) and clean up wording only.';
+        $turn[] = 'Detail level: ' . match (true) {
+            $written && $detail === 'medium' => 'MEDIUM — 3-5 sentences per paragraph.',
+            $written                        => 'SHORT — 2-3 sentences per paragraph.',
+            $detail === 'medium'            => 'MEDIUM — 2-3 sentences per section, each sentence up to ~22 words.',
+            default                         => 'SHORT — 1-2 sentences per section (Action may have 3), each sentence up to ~18 words.',
+        };
+        $turn[] = match (true) {
+            $autoDetect => 'The text below is a live speech transcript. It may contain filler, small talk or background talk. Set is_question=false if it does not contain an interview question directed at the candidate.',
+            $written    => 'The text below was read off a question paper the candidate has to answer. Treat it as a question (is_question=true) and keep its wording; fix only scanning slips.',
+            default     => 'The candidate typed this question themselves: treat it as a question (is_question=true) and clean up wording only.',
+        };
         $turn[] = '';
         $turn[] = "## TRANSCRIPT\n\"\"\"\n" . $transcript . "\n\"\"\"";
 
@@ -245,10 +259,17 @@ final class InterviewService
                 'strict' => true,
                 'schema' => self::answerSchema(),
             ]],
-            'max_output_tokens' => (int) config('openai.max_output_tokens.' . $detail, 900),
+            'max_output_tokens' => $written
+                ? (int) config('openai.max_output_tokens.written', 2600)
+                : (int) config('openai.max_output_tokens.' . $detail, 900),
         ];
         $this->applyReasoning($payload);
         return $payload;
+    }
+
+    public static function isWritten(string $mode): bool
+    {
+        return in_array($mode, self::WRITTEN_MODES, true);
     }
 
     private static function modeInstruction(string $mode): string
@@ -257,12 +278,21 @@ final class InterviewService
             . '"Key points" (3-4 sentences, one per area, opening with "First,", "Second,", "Third," / "Finally,"; precise technical terms), '
             . '"From my experience" (one concrete example from the CV: "I applied this in <real project>, where I…" plus what it taught me), '
             . '"Validation" (how I would confirm it works: tests, monitoring, metrics).';
+        $writtenRules = 'answer_mode="written". THIS ANSWER WILL BE TYPED OR HANDWRITTEN, NOT SPOKEN, so the spoken-delivery rules in the system instructions do not apply here. '
+            . 'Write connected prose, not talking points. sections = one per part of the answer, each with a short plain heading (e.g. "Opening", "My experience", "How I would approach it", "Conclusion"); '
+            . 'choose 3-5 headings that suit the question. Each bullet in a section is ONE complete paragraph in flowing first-person prose — full sentences, joined with connectives, no fragments and no bullet-style lists. '
+            . 'Respect any word limit or mark allocation stated with the question: roughly 120-150 words per 10 marks, and stay under a stated word limit. '
+            . 'points = 2-3 sentences summarising the argument. closing_line = the answer\'s final sentence.';
+
         return match ($mode) {
+            'written'    => $writtenRules,
             'quick'      => 'answer_mode="quick". Put 3-5 spoken sentences in points, in the order to say them: approach first, the key points, one real example, a closing line. sections must be [].',
             'star'       => 'answer_mode="star". sections exactly: Situation, Task, Action, Result. Use ONE real example from the CV. Action has 2-3 sentences opening with "First,", "Then," / "Finally,". points = 2-3 summary sentences.',
             'technical'  => 'answer_mode="technical". ' . $technical . ' points = 2-3 summary sentences.',
             'leadership' => 'answer_mode="leadership". sections exactly: "Approach" (one sentence), "Challenge", "Decision", "People", "Result" — anchored in ONE real example from the CV. points = 2-3 summary sentences.',
-            default      => 'AUTO: classify the question and choose the structure: '
+            default      => 'AUTO: classify the question and choose the structure. '
+                . 'If the question is one the candidate has to WRITE out (an essay or exam prompt, an assignment, or a form field with a word limit or marks) rather than say out loud, use ' . $writtenRules . ' '
+                . 'Otherwise: '
                 . 'technical/problem_solving → answer_mode "technical" with ' . $technical . ' '
                 . 'Pick the framework that fits: system design = architecture, security, scalability, observability; '
                 . 'debugging/incident = reproduce, measure, isolate, fix, validate; code review = correctness, security, maintainability, tests. '
@@ -401,25 +431,31 @@ TXT;
             return ['is_question' => false, 'question' => ''];
         }
 
+        $type = in_array($d['question_type'] ?? '', self::QUESTION_TYPES, true) ? $d['question_type'] : 'unknown';
+        $mode = in_array($d['answer_mode'] ?? '', self::ANSWER_MODES, true) ? $d['answer_mode']
+            : ($requestedMode !== 'auto' && in_array($requestedMode, self::ANSWER_MODES, true) ? $requestedMode : 'general');
+
+        // Written answers are paragraphs the candidate will type, so they get much longer limits
+        // than spoken lines, which must stay glanceable.
+        $written = self::isWritten($mode);
+        $perSection = $written ? 6 : 4;
+        $bulletMax = $written ? 1400 : 220;
+
         $sections = [];
         foreach (array_slice(is_array($d['sections'] ?? null) ? $d['sections'] : [], 0, 7) as $sec) {
             if (!is_array($sec)) {
                 continue;
             }
             $label = $s($sec['label'] ?? '', 40);
-            $bullets = $list($sec['bullets'] ?? [], 4);
+            $bullets = $list($sec['bullets'] ?? [], $perSection, $bulletMax);
             if ($label !== '' && $bullets) {
                 $sections[] = ['label' => $label, 'bullets' => $bullets];
             }
         }
-        $points = $list($d['points'] ?? [], 6);
+        $points = $list($d['points'] ?? [], 6, $written ? 400 : 220);
         if (!$points && !$sections) {
             throw new \UnexpectedValueException('Answer has no content');
         }
-
-        $type = in_array($d['question_type'] ?? '', self::QUESTION_TYPES, true) ? $d['question_type'] : 'unknown';
-        $mode = in_array($d['answer_mode'] ?? '', self::ANSWER_MODES, true) ? $d['answer_mode']
-            : ($requestedMode !== 'auto' && in_array($requestedMode, self::ANSWER_MODES, true) ? $requestedMode : 'general');
 
         $out = [
             'is_question'   => true,
@@ -431,7 +467,7 @@ TXT;
             'sections'      => $mode === 'quick' ? [] : $sections,
             'cv_evidence'   => $list($d['cv_evidence'] ?? [], 4, 260),
             'evidence_note' => $s($d['evidence_note'] ?? '', 300),
-            'closing_line'  => trim($s($d['closing_line'] ?? '', 300), '"“”'),
+            'closing_line'  => trim($s($d['closing_line'] ?? '', $written ? 500 : 300), '"“”'),
             'keywords'      => $list($d['keywords'] ?? [], 6, 40),
         ];
         if ($mode === 'quick' && !$out['points'] && $sections) {

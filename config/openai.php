@@ -10,7 +10,7 @@ declare(strict_types=1);
  *   POST /v1/audio/transcriptions      - fallback recorded-audio transcription (gpt-transcribe)
  *   POST /v1/realtime/client_secrets   - short-lived ephemeral key for browser WebRTC transcription
  *   POST /v1/realtime/calls            - (browser) WebRTC SDP exchange using the ephemeral key
- *   POST /v1/files, DELETE /v1/files/{id} - CV file inputs (purpose=user_data)
+ *   POST /v1/files, DELETE /v1/files/{id} - CV + scanned PDF file inputs (purpose=user_data)
  */
 
 $pricing = [];
@@ -33,6 +33,9 @@ return [
     'answer_reasoning' => env('OPENAI_ANSWER_REASONING', 'none'),
     'cv_model'         => env('OPENAI_CV_MODEL', 'gpt-6-luna'),
     'cv_reasoning'     => env('OPENAI_CV_REASONING', 'low'),
+    // Reading a photographed/scanned question paper (vision input).
+    'scan_model'       => env('OPENAI_SCAN_MODEL', 'gpt-6-luna'),
+    'scan_reasoning'   => env('OPENAI_SCAN_REASONING', 'low'),
 
     'transcribe_model'          => env('OPENAI_TRANSCRIBE_MODEL', 'gpt-transcribe'),
     'realtime_transcribe_model' => env('OPENAI_REALTIME_TRANSCRIBE_MODEL', 'gpt-live-transcribe'),
@@ -48,5 +51,10 @@ return [
     'max_output_tokens' => [
         'short'  => 900,
         'medium' => 1500,
+        // Written (typed/essay) answers need room for full paragraphs.
+        'written' => 2600,
     ],
+
+    // Reading the questions off a scanned paper
+    'scan_max_output_tokens' => (int) env('OPENAI_SCAN_MAX_OUTPUT_TOKENS', 4000),
 ];

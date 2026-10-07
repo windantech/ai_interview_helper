@@ -4,6 +4,7 @@ $bottom = [
     'dashboard' => ['Home', 'dashboard.php', 'home'],
     'cv'        => ['CV', 'cv.php', 'file'],
     'interview' => ['Interview', 'interview.php', 'mic'],
+    'scan'      => ['Scan', 'scan.php', 'scan'],
     'jobs'      => ['Jobs', 'jobs.php', 'briefcase'],
     'history'   => ['History', 'history.php', 'history'],
 ];

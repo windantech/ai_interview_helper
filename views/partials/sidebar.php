@@ -3,6 +3,7 @@
 $nav = [
     'dashboard' => ['Dashboard', 'dashboard.php', 'home'],
     'interview' => ['Interview', 'interview.php', 'mic'],
+    'scan'      => ['Scan paper', 'scan.php', 'scan'],
     'practice'  => ['Practice', 'practice.php', 'target'],
     'cv'        => ['My CV', 'cv.php', 'file'],
     'jobs'      => ['Target jobs', 'jobs.php', 'briefcase'],

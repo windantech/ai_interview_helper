@@ -12,8 +12,9 @@ $rich = function (string $text) use ($pattern): string {
     }
     return $out;
 };
+$written = ($a['answer_mode'] ?? '') === 'written';
 ?>
-<div class="answer">
+<div class="answer<?= $written ? ' answer-written' : '' ?>">
     <?php if (!empty($a['key_message'])): ?>
         <div class="key-message"><p class="answer-label">Main point</p><p><?= e($a['key_message']) ?></p></div>
     <?php endif; ?>
@@ -23,7 +24,11 @@ $rich = function (string $text) use ($pattern): string {
             <?php foreach ($a['sections'] as $sec): ?>
                 <div class="answer-section">
                     <h3><?= e($sec['label']) ?></h3>
-                    <ul><?php foreach ($sec['bullets'] as $b): ?><li><?= $rich((string) $b) ?></li><?php endforeach; ?></ul>
+                    <?php if ($written): ?>
+                        <div class="answer-prose"><?php foreach ($sec['bullets'] as $b): ?><p><?= $rich((string) $b) ?></p><?php endforeach; ?></div>
+                    <?php else: ?>
+                        <ul><?php foreach ($sec['bullets'] as $b): ?><li><?= $rich((string) $b) ?></li><?php endforeach; ?></ul>
+                    <?php endif; ?>
                 </div>
             <?php endforeach; ?>
         </div>

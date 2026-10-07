@@ -69,6 +69,15 @@ final class Client
     {
         return $this->req('POST', $p, ['form' => [$field => new CURLFile($path, 'application/octet-stream', $name)] + $extra]);
     }
+    /** Multi-file upload, e.g. pages[0], pages[1] → $_FILES['pages'] with array keys. */
+    public function uploadMany(string $p, string $field, array $files, array $extra = []): array
+    {
+        $form = $extra;
+        foreach (array_values($files) as $i => [$path, $name, $mime]) {
+            $form[$field . '[' . $i . ']'] = new CURLFile($path, $mime, $name);
+        }
+        return $this->req('POST', $p, ['form' => $form]);
+    }
     public function sessionCookie(): string
     {
         $c = (string) @file_get_contents($this->jar);
@@ -111,6 +120,12 @@ $evil = "$fx/evil.pdf";
 file_put_contents($evil, "MZ\x90\x00" . str_repeat("\0", 300));
 $big = "$fx/big.txt";
 file_put_contents($big, str_repeat("Lorem ipsum dolor sit amet.\n", 400000)); // ~11 MB
+$pagePng = "$fx/page-1.png";
+file_put_contents($pagePng, base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAAMBAQAY3Y2wAAAAAElFTkSuQmCC'));
+$pageJpg = "$fx/page-2.jpg";
+file_put_contents($pageJpg, "\xFF\xD8\xFF\xE0" . pack('n', 16) . 'JFIF' . "\0" . str_repeat("\x20", 600) . "\xFF\xD9");
+$paperPdf = "$fx/paper.pdf";
+file_put_contents($paperPdf, "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n" . str_repeat('%', 400));
 $wav = "$fx/q.wav";
 file_put_contents($wav, 'RIFF' . pack('V', 36 + 32000) . 'WAVEfmt ' . pack('VvvVVvv', 16, 1, 1, 16000, 32000, 2, 16) . 'data' . pack('V', 32000) . random_bytes(32000));
 
@@ -344,6 +359,99 @@ $r = $c->api('api/generate-answer.php', ['session_id' => $psid, 'question_id' =>
 check('practice "show approach" uses the same pipeline', ($r['json']['data']['is_question'] ?? false) === true);
 check('practice pages render', noPhpErrors($c->get('practice.php')['body']));
 
+
+// =================================================================== SCAN
+section('Scan a question paper');
+$r = $c->get('scan.php');
+check('scan page renders', $r['status'] === 200 && str_contains($r['body'], 'sc-capture') && noPhpErrors($r['body']));
+check('scan page does not leak the API key', !str_contains($r['body'], 'sk-test-key'));
+check('Permissions-Policy allows the camera for this origin', (bool) preg_match('/Permissions-Policy:[^\r\n]*camera=\(self\)/i', $r['head']), $r['head']);
+check('CSP allows blob: page previews', (bool) preg_match('/img-src[^;]*blob:/i', $r['head']) && (bool) preg_match('/media-src[^;]*blob:/i', $r['head']));
+
+$r = $c->uploadMany('api/scan-extract.php', 'pages', [[$pagePng, 'page-1.png', 'image/png'], [$pageJpg, 'page-2.jpg', 'image/jpeg']], ['job_id' => (string) $jobId, 'hint' => 'Section B only.', 'instructions' => 'Use the depot upgrade as my example.']);
+$sc = $r['json']['data'] ?? [];
+check('two pages scanned → 201', $r['status'] === 201 && count($sc['questions'] ?? []) === 3, $r['body']);
+$scanSid = (int) ($sc['session']['id'] ?? 0);
+check('scan opens its own session', $scanSid > 0 && pdo()->query("SELECT session_type FROM interview_sessions WHERE id = $scanSid")->fetchColumn() === 'scan');
+check('session named after the paper', str_contains($sc['session']['title'] ?? '', 'Management Principles'), $sc['session']['title'] ?? '');
+check('printed numbering kept', array_column($sc['questions'], 'number') === ['1', '2(a)', '2(b)'], json_encode(array_column($sc['questions'], 'number')));
+check('marks captured', ($sc['questions'][0]['marks'] ?? '') === '[20 marks]');
+check('paper-wide directions kept separate from the questions', ($sc['document']['instructions_text'] ?? '') === 'Answer any three questions.');
+check('paper recognised as one to write on', ($sc['document']['written'] ?? false) === true && ($sc['document']['type'] ?? '') === 'essay_exam');
+check('questions stored unanswered, ready to answer', (int) pdo()->query("SELECT COUNT(*) FROM interview_questions WHERE session_id = $scanSid AND source = 'scan' AND answer_json IS NULL")->fetchColumn() === 3);
+check('scan instructions saved on the session', str_contains($sc['session']['instructions'] ?? '', 'depot upgrade'));
+$scanReq = lastMock('/responses')['json'];
+$scanText = json_encode($scanReq, JSON_UNESCAPED_SLASHES);
+check('both pages sent in one vision call', substr_count($scanText, '"input_image"') === 2);
+check('pages sent as base64 data URLs, not stored paths', str_contains($scanText, 'data:image/png;base64,') && str_contains($scanText, 'data:image/jpeg;base64,'));
+check('scan uses the configured model + strict schema', $scanReq['model'] === 'gpt-6-luna' && ($scanReq['text']['format']['name'] ?? '') === 'scanned_questions');
+check('scan prompt carries CV/job vocabulary and the candidate hint', str_contains($scanText, 'Acme Build') && str_contains($scanText, 'Section B only.'));
+check('no page images written to storage', count(glob("$STORAGE/users/$uid/*.png")) === 0 && count(glob("$STORAGE/*.png")) === 0);
+
+$qids = array_column($sc['questions'], 'id');
+$r = $c->api('api/generate-answer.php', ['session_id' => $scanSid, 'question_id' => $qids[0], 'mode' => 'written', 'source' => 'scan']);
+$ans = $r['json']['data']['answer'] ?? [];
+check('scanned question answered in written mode', $r['status'] === 200 && ($ans['answer_mode'] ?? '') === 'written', $r['body']);
+check('written answer is prose, not clipped talking points', mb_strlen($ans['sections'][0]['bullets'][0] ?? '') > 220);
+check('written answer grounded in the CV', !empty($ans['cv_evidence']));
+check('answer stored against the scanned question row', (int) pdo()->query("SELECT COUNT(*) FROM interview_questions WHERE id = {$qids[0]} AND answer_json IS NOT NULL")->fetchColumn() === 1);
+check('answering does not add a duplicate row', (int) pdo()->query("SELECT COUNT(*) FROM interview_questions WHERE session_id = $scanSid")->fetchColumn() === 3);
+$wreq = json_encode(lastMock('/responses')['json']);
+check('written prompt overrides the spoken rules', str_contains($wreq, 'NOT SPOKEN'));
+check('scan instructions sent with the answer', str_contains($wreq, 'depot upgrade'));
+
+$r = $c->api('api/generate-answer.php', ['session_id' => $scanSid, 'question_id' => $qids[1], 'mode' => 'auto', 'source' => 'scan']);
+check('second scanned question answered', ($r['json']['data']['is_question'] ?? false) === true);
+$ctx = json_encode(lastMock('/responses')['json']);
+check('only answered questions used as context', str_contains($ctx, 'EARLIER QUESTIONS') && str_contains($ctx, 'manage a late project')
+    && !str_contains($ctx, 'Describe a time you had to manage a difficult team member'), $ctx);
+
+$r = $c->api('api/scan-question.php', ['session_id' => $scanSid, 'question_id' => $qids[0], 'text' => 'Discuss how you would recover a project that has fallen four weeks behind.', 'number' => '1']);
+check('mis-read question can be corrected', $r['status'] === 200 && (int) $r['json']['data']['id'] === $qids[0], $r['body']);
+check('correcting a question clears its stale answer', pdo()->query("SELECT answer_json FROM interview_questions WHERE id = {$qids[0]}")->fetchColumn() === null);
+$r = $c->api('api/scan-question.php', ['session_id' => $scanSid, 'text' => 'Evaluate the use of earned value analysis on a capital project.']);
+$addedId = (int) ($r['json']['data']['id'] ?? 0);
+check('a missed question can be added', $r['status'] === 201 && $addedId > 0);
+check('added question answers through the same pipeline', ($c->api('api/generate-answer.php', ['session_id' => $scanSid, 'question_id' => $addedId, 'source' => 'scan'])['json']['data']['is_question'] ?? false) === true);
+$r = $c->api('api/scan-question.php', ['session_id' => $scanSid, 'text' => 'short']);
+check('too-short question rejected (422)', $r['status'] === 422);
+$r = $c->api('api/scan-question.php', ['session_id' => $sid, 'text' => 'Is this allowed on a non-scan session?']);
+check('only scan sessions accept scanned questions (404)', $r['status'] === 404);
+
+$r = $c->api('api/generate-answer.php', ['session_id' => $scanSid, 'transcript' => 'Outline the stages of a project lifecycle.', 'source' => 'scan']);
+check('scanned text is never dropped by the speech prefilter', ($r['json']['data']['is_question'] ?? false) === true, $r['body']);
+pdo()->exec("DELETE FROM interview_questions WHERE session_id = $scanSid AND question LIKE '%project lifecycle%'");
+
+$r = $c->uploadMany('api/scan-extract.php', 'pages', [[$cvTxt, 'page.txt', 'text/plain']]);
+check('non-image page rejected (415)', $r['status'] === 415, $r['body']);
+$r = $c->uploadMany('api/scan-extract.php', 'pages', [[$evil, 'page.png', 'image/png']]);
+check('executable disguised as a page rejected', $r['status'] === 415);
+$r = $c->api('api/scan-extract.php', []);
+check('scan with no pages rejected (400)', $r['status'] === 400);
+$r = $c->uploadMany('api/scan-extract.php', 'pages', array_fill(0, 9, [$pagePng, 'page.png', 'image/png']));
+check('too many pages rejected (422)', $r['status'] === 422 && str_contains($r['json']['message'] ?? '', 'up to 8 pages'), $r['body']);
+$r = $c->uploadMany('api/scan-extract.php', 'pages', [[$pagePng, 'page-1.png', 'image/png']], ['hint' => 'This is a blank page.']);
+check('unreadable page → friendly 422, no session created', $r['status'] === 422 && ($r['json']['error_kind'] ?? '') === 'no_questions' && str_contains($r['json']['message'] ?? '', 'read that page'), $r['body']);
+check('failed scan did not open a session', (int) pdo()->query("SELECT COUNT(*) FROM interview_sessions WHERE user_id = $uid AND session_type = 'scan'")->fetchColumn() === 1);
+
+$filesDeleted = fn () => count(array_filter(mockCalls(), fn ($m) => $m['method'] === 'DELETE' && str_starts_with($m['route'], '/files/')));
+$deletesBefore = $filesDeleted();
+$r = $c->uploadMany('api/scan-extract.php', 'pages', [[$paperPdf, 'paper.pdf', 'application/pdf']]);
+check('a PDF paper scans too', $r['status'] === 201 && count($r['json']['data']['questions'] ?? []) === 3, $r['body']);
+$pdfScanSid = (int) $r['json']['data']['session']['id'];
+check('PDF sent as an OpenAI file input', str_contains(json_encode(lastMock('/responses')['json']), 'input_file'));
+check('temporary OpenAI file deleted after the scan', $filesDeleted() === $deletesBefore + 1, $filesDeleted() . ' vs ' . $deletesBefore);
+check('starting a new scan closes the previous one', pdo()->query("SELECT status FROM interview_sessions WHERE id = $scanSid")->fetchColumn() === 'ended');
+
+$r = $c->get("history.php?id=$pdfScanSid");
+check('scanned paper appears in history, labelled', $r['status'] === 200 && str_contains($r['body'], 'Scanned paper') && noPhpErrors($r['body']));
+check('history shows the printed question numbers', str_contains($r['body'], 'Question 2(a)'));
+check('unanswered scanned questions marked as such', str_contains($r['body'], 'Not answered yet.'));
+$r = $c->get('history.php?type=scan');
+check('history can be filtered to scanned papers', $r['status'] === 200 && str_contains($r['body'], 'Scanned paper') && noPhpErrors($r['body']));
+$r = $c->api('api/end-session.php', ['session_id' => $pdfScanSid]);
+check('finishing a paper ends the session', $r['status'] === 200);
+
 // =================================================================== SETTINGS
 section('Settings & privacy controls');
 $r = $c->get('settings.php');
@@ -372,6 +480,8 @@ check("other user can't use session for answers", $other->api('api/generate-answ
 $od = $other->get('api/cv-profile.php')['json']['data'] ?? [];
 check("other user gets no CV", array_key_exists('cv', $od) && $od['cv'] === null);
 check("other user can't change instructions", $other->api('api/session-instructions.php', ['session_id' => $sid2, 'instructions' => 'hack'])['status'] === 404);
+check("other user can't edit a scanned question", $other->api('api/scan-question.php', ['session_id' => $scanSid, 'text' => 'Inject a question into someone else\'s paper.'])['status'] === 404);
+check("other user can't answer a scanned question", $other->api('api/generate-answer.php', ['session_id' => $scanSid, 'question_id' => $qids[1], 'source' => 'scan'])['status'] === 404);
 
 // =================================================================== DELETE DATA
 section('Deleting data');
@@ -419,7 +529,7 @@ check('login attempts rate limited', str_contains($last, 'Too many sign-in attem
 
 // =================================================================== PAGES
 section('All pages render without PHP errors');
-foreach (['dashboard.php', 'cv.php', 'jobs.php', 'jobs.php?new=1', "jobs.php?edit=$jobId", 'interview.php', "interview.php?job=$jobId", 'practice.php', 'history.php', 'settings.php', 'privacy.php', 'terms.php', 'nope.php'] as $pg) {
+foreach (['dashboard.php', 'cv.php', 'jobs.php', 'jobs.php?new=1', "jobs.php?edit=$jobId", 'interview.php', "interview.php?job=$jobId", 'scan.php', "scan.php?job=$jobId", 'practice.php', 'history.php', 'history.php?type=scan', 'settings.php', 'privacy.php', 'terms.php', 'nope.php'] as $pg) {
     $r = $l->get($pg);
     $ok = ($pg === 'nope.php' ? $r['status'] === 404 : $r['status'] === 200) && noPhpErrors($r['body']);
     check("GET /$pg", $ok, $r['status'] . ' ' . substr(strip_tags($r['body']), 0, 300));

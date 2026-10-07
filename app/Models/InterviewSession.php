@@ -21,9 +21,10 @@ final class InterviewSession
 
     public static function create(int $userId, ?array $job, string $type = 'live', ?string $instructions = null): int
     {
+        $prefix = match ($type) { 'practice' => 'Practice: ', 'scan' => 'Scan: ', default => '' };
         $title = $job
-            ? ($type === 'practice' ? 'Practice: ' : '') . $job['title'] . ($job['company'] ? ' — ' . $job['company'] : '')
-            : ($type === 'practice' ? 'Practice interview' : 'Interview');
+            ? $prefix . $job['title'] . ($job['company'] ? ' — ' . $job['company'] : '')
+            : match ($type) { 'practice' => 'Practice interview', 'scan' => 'Scanned questions', default => 'Interview' };
         return Database::insert(
             'INSERT INTO interview_sessions (user_id, job_id, title, job_title, company, instructions, session_type, status, started_at)
              VALUES (?, ?, ?, ?, ?, ?, ?, \'active\', UTC_TIMESTAMP())',
@@ -36,6 +37,15 @@ final class InterviewSession
     {
         $text = trim(str_replace(["\r\n", "\r"], "\n", (string) $text));
         return $text === '' ? null : mb_substr($text, 0, self::MAX_INSTRUCTIONS);
+    }
+
+    /** Rename a session (used by Scan, so the paper's own title shows in history). */
+    public static function rename(int $id, int $userId, string $title): void
+    {
+        $title = trim(preg_replace('/\s+/u', ' ', $title) ?? $title);
+        if ($title !== '') {
+            Database::execute('UPDATE interview_sessions SET title = ? WHERE id = ? AND user_id = ?', [mb_substr($title, 0, 200), $id, $userId]);
+        }
     }
 
     public static function updateInstructions(int $id, int $userId, ?string $instructions): bool
@@ -106,7 +116,7 @@ final class InterviewSession
             $where[] = 's.job_id = :job';
             $params['job'] = (int) $filters['job_id'];
         }
-        if (!empty($filters['type']) && in_array($filters['type'], ['live', 'practice'], true)) {
+        if (!empty($filters['type']) && in_array($filters['type'], ['live', 'practice', 'scan'], true)) {
             $where[] = 's.session_type = :stype';
             $params['stype'] = $filters['type'];
         }
@@ -143,11 +153,12 @@ final class InterviewSession
     public static function addQuestion(int $sessionId, array $data): int
     {
         return Database::insert(
-            'INSERT INTO interview_questions (session_id, question, raw_transcript, question_type, answer_mode, answer_json, source, user_answer, feedback_json, latency_ms)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT INTO interview_questions (session_id, question, question_number, raw_transcript, question_type, answer_mode, answer_json, source, user_answer, feedback_json, latency_ms)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
             [
                 $sessionId,
                 $data['question'],
+                $data['question_number'] ?? null,
                 $data['raw_transcript'] ?? null,
                 $data['question_type'] ?? 'unknown',
                 $data['answer_mode'] ?? 'auto',
@@ -171,7 +182,7 @@ final class InterviewSession
 
     public static function updateQuestion(int $questionId, array $fields): void
     {
-        $allowed = ['answer_json', 'user_answer', 'feedback_json', 'answer_mode', 'question_type'];
+        $allowed = ['question', 'question_number', 'answer_json', 'user_answer', 'feedback_json', 'answer_mode', 'question_type'];
         $sets = [];
         $params = [];
         foreach ($fields as $k => $v) {
@@ -198,12 +209,16 @@ final class InterviewSession
         return $rows;
     }
 
-    /** Recent questions for context (most recent last). @return list<array{question:string,key_message:string}> */
+    /**
+     * Recently answered questions for context (most recent last). Questions still waiting for an
+     * answer are skipped — a scanned paper stores all of its questions up front.
+     * @return list<array{question:string,key_message:string}>
+     */
     public static function recentContext(int $sessionId, int $limit = 4): array
     {
         $rows = Database::fetchAll(
             'SELECT question, JSON_UNQUOTE(JSON_EXTRACT(answer_json, \'$.key_message\')) AS key_message
-             FROM interview_questions WHERE session_id = ? ORDER BY id DESC LIMIT ' . max(1, min(10, $limit)),
+             FROM interview_questions WHERE session_id = ? AND answer_json IS NOT NULL ORDER BY id DESC LIMIT ' . max(1, min(10, $limit)),
             [$sessionId]
         );
         return array_reverse(array_map(fn ($r) => [

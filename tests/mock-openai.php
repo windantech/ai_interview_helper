@@ -144,6 +144,25 @@ if ($method === 'POST' && $route === '/responses') {
                 responseWith(json_encode(['is_question' => false, 'question' => '', 'question_type' => 'unknown', 'answer_mode' => 'general', 'key_message' => '', 'points' => [], 'sections' => [], 'cv_evidence' => [], 'evidence_note' => '', 'closing_line' => '', 'keywords' => []]));
             }
             $quick = str_contains($text, 'Requested mode: QUICK');
+            if (str_contains($text, 'Requested mode: WRITTEN')) {
+                responseWith(json_encode([
+                    'is_question' => true,
+                    'question' => ucfirst(trim($m[1] ?? 'Discuss project recovery.')),
+                    'question_type' => 'management',
+                    'answer_mode' => 'written',
+                    'key_message' => 'Show a structured recovery approach grounded in real delivery experience.',
+                    'points' => ['A late project is recovered by re-baselining scope, resequencing the critical path and renegotiating expectations.', 'I did this on the depot upgrade at Acme Build.'],
+                    'sections' => [
+                        ['label' => 'Opening', 'bullets' => ['A project that has fallen behind schedule needs an honest reassessment before any recovery plan is credible, because every option depends on knowing how much of the slippage is scope, estimation or dependency failure. In my experience the first action is to re-baseline rather than to ask the team to work harder.']],
+                        ['label' => 'My experience', 'bullets' => ['On the £4m depot upgrade at Acme Build I inherited a programme running four weeks late, and I rebuilt the critical path with the delivery leads before committing to a new date. That exercise taught me that transparency with the client early is cheaper than optimism later.']],
+                        ['label' => 'Conclusion', 'bullets' => ['Recovery therefore rests on three things: an accurate re-baseline, a resequenced critical path, and expectations renegotiated in writing with the sponsor.']],
+                    ],
+                    'cv_evidence' => ['Delivered £4m depot upgrade on time', 'Managed 12-person team at Acme Build'],
+                    'evidence_note' => '',
+                    'closing_line' => 'Handled that way, a late project becomes a managed one rather than a failing one.',
+                    'keywords' => ['Re-baseline', 'Critical path', 'Stakeholder management'],
+                ]));
+            }
             responseWith(json_encode([
                 'is_question' => true,
                 'question' => ucfirst(trim($m[1] ?? 'Tell me about yourself.')),
@@ -161,6 +180,31 @@ if ($method === 'POST' && $route === '/responses') {
                 'evidence_note' => '',
                 'closing_line' => 'Addressing issues early keeps small problems small.',
                 'keywords' => ['Accountability', 'Feedback', 'Communication'],
+            ]));
+        case 'scanned_questions':
+            $raw = json_encode($json['input'], JSON_UNESCAPED_SLASHES);
+            $pages = substr_count($raw, '"input_image"') + substr_count($raw, '"input_file"');
+            if ($pages < 1) {
+                apiError(400, 'A scan must include at least one page image or file.');
+            }
+            if (str_contains($raw, 'input_image') && !preg_match('#"image_url":"data:image/(jpeg|png|webp);base64,#', $raw)) {
+                apiError(400, 'input_image must carry a base64 data URL of a supported image type.');
+            }
+            if (str_contains($text, 'blank page')) {
+                responseWith(json_encode(['document_type' => 'unreadable', 'document_title' => '', 'instructions_text' => '',
+                    'written_answer_expected' => false, 'notes' => 'The page looks blank or is too dark to read.', 'questions' => []]));
+            }
+            responseWith(json_encode([
+                'document_type'  => 'essay_exam',
+                'document_title' => 'Management Principles — Paper 2',
+                'instructions_text' => 'Answer any three questions.',
+                'written_answer_expected' => true,
+                'notes' => $pages > 1 ? 'Read ' . $pages . ' pages.' : '',
+                'questions' => [
+                    ['number' => '1', 'text' => 'Discuss how you would manage a project that has fallen behind schedule.', 'marks' => '[20 marks]', 'question_type' => 'management'],
+                    ['number' => '2(a)', 'text' => 'Explain the role of stakeholder communication in project delivery.', 'marks' => '[10 marks]', 'question_type' => 'communication'],
+                    ['number' => '2(b)', 'text' => 'Describe a time you had to manage a difficult team member.', 'marks' => '[10 marks]', 'question_type' => 'behavioural'],
+                ],
             ]));
         case 'practice_question':
             $n = substr_count($text, "\n- ");

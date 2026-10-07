@@ -5,7 +5,7 @@ declare(strict_types=1);
 /*
  * POST /api/generate-answer.php  JSON: {session_id, transcript, mode, source, question_id?, stream?}
  * Detects/cleans the interview question and returns structured, CV-aware answer guidance.
- * source: live | recorded | typed | practice
+ * source: live | recorded | typed | practice | scan
  *
  * With "stream": true the response is Server-Sent Events so the answer appears while it is written:
  *   event: delta  data: {"t": "<raw JSON text chunk>"}
@@ -45,7 +45,7 @@ Api::handle(function (): void {
         throw new HttpException(422, 'The question is too long. Please shorten it.');
     }
     $mode = is_string($in['mode'] ?? null) ? $in['mode'] : 'auto';
-    $source = in_array($in['source'] ?? '', ['live', 'recorded', 'typed', 'practice'], true) ? $in['source'] : 'typed';
+    $source = in_array($in['source'] ?? '', ['live', 'recorded', 'typed', 'practice', 'scan'], true) ? $in['source'] : 'typed';
 
     $existingId = null;
     if (!empty($in['question_id'])) {

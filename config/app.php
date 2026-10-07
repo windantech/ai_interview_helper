@@ -15,6 +15,11 @@ return [
     // Upload limits
     'max_cv_size_bytes'    => (int) round((float) env('MAX_CV_SIZE_MB', 10) * 1024 * 1024),
     'max_audio_size_bytes' => (int) round((float) env('MAX_AUDIO_SIZE_MB', 20) * 1024 * 1024),
+    // Scanned question papers: per page/file limit and how many pages one scan may contain.
+    'max_scan_page_bytes'  => (int) round((float) env('MAX_SCAN_PAGE_MB', 8) * 1024 * 1024),
+    'max_scan_pages'       => max(1, min(12, (int) env('MAX_SCAN_PAGES', 8))),
+    // Whole-scan ceiling: pages are base64-encoded into one request, so cap the total.
+    'max_scan_total_bytes' => (int) round((float) env('MAX_SCAN_TOTAL_MB', 20) * 1024 * 1024),
 
     // Answer defaults
     'default_answer_length' => in_array(env('DEFAULT_ANSWER_LENGTH', 'short'), ['short', 'medium'], true)
@@ -37,11 +42,13 @@ return [
         'register'         => [5, 3600],
         'forgot_password'  => [4, 3600],
         'reset_password'   => [10, 3600],
-        'generate_answer'  => [40, 60],
+        // Answering a whole scanned paper is a legitimate burst of answer calls.
+        'generate_answer'  => [60, 60],
         'transcribe'       => [40, 60],
         'realtime_session' => [30, 600],
         'cv_upload'        => [12, 3600],
         'practice'         => [40, 60],
+        'scan_extract'     => [20, 600],
         'api_general'      => [120, 60],
     ],
 ];

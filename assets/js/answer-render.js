@@ -11,7 +11,7 @@
         competency: 'Competency', motivation: 'Motivation', career_history: 'Career history', salary_hr: 'Salary / HR',
         problem_solving: 'Problem solving', management: 'Management', communication: 'Communication', general: 'General', unknown: 'Unknown'
     };
-    var MODE_LABELS = { quick: 'Quick', star: 'STAR', technical: 'Technical', leadership: 'Leadership', general: 'General', auto: 'Auto' };
+    var MODE_LABELS = { quick: 'Quick', star: 'STAR', technical: 'Technical', leadership: 'Leadership', general: 'General', written: 'Written', auto: 'Auto' };
 
     function list(items, cls, keywords) {
         var ul = el('ul', cls ? { 'class': cls } : null);
@@ -20,6 +20,15 @@
             ul.appendChild(keywords ? rich('li', t, keywords) : el('li', { text: t }));
         });
         return ul;
+    }
+
+    /** Written answers are paragraphs to be typed out, not bullets to be spoken. */
+    function paragraphs(items, keywords) {
+        var wrap = el('div', { 'class': 'answer-prose' });
+        (items || []).forEach(function (t) {
+            if (typeof t === 'string' && t) { wrap.appendChild(rich('p', t, keywords)); }
+        });
+        return wrap;
     }
 
     function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
@@ -46,7 +55,8 @@
     function renderAnswer(a) {
         a = a || {};
         var kw = Array.isArray(a.keywords) ? a.keywords : [];
-        var root = el('div', { 'class': 'answer' });
+        var written = a.answer_mode === 'written';
+        var root = el('div', { 'class': 'answer' + (written ? ' answer-written' : '') });
         if (a.key_message) {
             root.appendChild(el('div', { 'class': 'key-message' }, [
                 el('p', { 'class': 'answer-label', text: 'Main point' }),
@@ -57,7 +67,10 @@
             var secs = el('div', { 'class': 'answer-sections' });
             a.sections.forEach(function (s) {
                 if (!s || typeof s.label !== 'string') { return; }
-                secs.appendChild(el('div', { 'class': 'answer-section' }, [el('h3', { text: s.label }), list(s.bullets, null, kw)]));
+                secs.appendChild(el('div', { 'class': 'answer-section' }, [
+                    el('h3', { text: s.label }),
+                    written ? paragraphs(s.bullets, kw) : list(s.bullets, null, kw)
+                ]));
             });
             root.appendChild(secs);
         } else if (Array.isArray(a.points) && a.points.length && (a.answer_mode === 'quick' || !('sections' in a) || a.sections.length === 0)) {
@@ -92,9 +105,10 @@
         if (question) { out.push('Q: ' + question, ''); }
         if (a.key_message) { out.push('MAIN POINT: ' + a.key_message, ''); }
         if (a.sections && a.sections.length) {
+            var bullet = a.answer_mode === 'written' ? '' : '• ';
             a.sections.forEach(function (s) {
                 out.push(s.label.toUpperCase());
-                s.bullets.forEach(function (b) { out.push('• ' + b); });
+                s.bullets.forEach(function (b) { out.push(bullet + b); });
                 out.push('');
             });
         } else {

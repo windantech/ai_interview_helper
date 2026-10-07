@@ -19,6 +19,7 @@ use App\Services\CVService;
 use App\Services\FileUploadService;
 use App\Services\InterviewService;
 use App\Services\OpenAIClient;
+use App\Services\ScanService;
 use App\Services\OpenAIException;
 
 $pass = 0;
@@ -107,6 +108,15 @@ $long['points'] = array_fill(0, 20, 'p');
 $long['keywords'] = array_fill(0, 20, 'k');
 $nl = InterviewService::normaliseAnswer($long);
 check('lists capped', count($nl['points']) === 6 && count($nl['keywords']) === 6);
+$writtenPara = str_repeat('This paragraph is long enough to prove that written answers are not truncated at the spoken limit. ', 6);
+$written = $valid;
+$written['answer_mode'] = 'written';
+$written['sections'] = [['label' => 'Opening', 'bullets' => [$writtenPara]]];
+$nw = InterviewService::normaliseAnswer($written);
+check('written mode kept', $nw['answer_mode'] === 'written' && InterviewService::isWritten('written'));
+check('written paragraphs not cut to the spoken 220-char limit', mb_strlen($nw['sections'][0]['bullets'][0]) > 500);
+check('spoken bullets still capped at 220', mb_strlen(InterviewService::normaliseAnswer(['is_question' => true, 'question' => 'Q?', 'answer_mode' => 'star',
+    'sections' => [['label' => 'Situation', 'bullets' => [$writtenPara]]], 'points' => []])['sections'][0]['bullets'][0]) === 220);
 check('stripJson removes code fences', InterviewService::stripJson("```json\n{\"a\":1}\n```") === '{"a":1}');
 check('stripJson trims preamble', InterviewService::stripJson("Here you go: {\"a\":1} thanks") === '{"a":1}');
 
@@ -133,7 +143,9 @@ $strictOk = function (array $schema) use (&$strictOk): bool {
 check('answer schema strict-valid', $strictOk(InterviewService::answerSchema()));
 check('CV profile schema strict-valid', $strictOk(CVService::profileSchema()));
 check('JD schema strict-valid', $strictOk(InterviewService::jdSchema()));
+check('scan schema strict-valid', $strictOk(ScanService::schema()));
 check('all 13 question types present', count(InterviewService::QUESTION_TYPES) === 13);
+check('scan question types reuse the answer enum', ScanService::schema()['properties']['questions']['items']['properties']['question_type']['enum'] === InterviewService::QUESTION_TYPES);
 
 // ---------------------------------------------------------------- Prompt building
 section('Prompt building (token optimisation)');
@@ -155,6 +167,12 @@ check('interview instructions included in prompt', str_contains($withIns, "CANDI
 check('strict structured output requested', $payload['text']['format']['strict'] === true && $payload['text']['format']['type'] === 'json_schema');
 check('no-CV context forbids invention', str_contains(InterviewService::candidateContext(null), 'never invent'));
 check('prompt asks for speakable first-person sentences, no coaching instructions', str_contains($payload['instructions'], 'say exactly as written') && str_contains($payload['instructions'], 'NEVER be instructions'));
+$writtenPayload = $svc->buildAnswerPayload('Discuss project recovery. [20 marks]', 'written', 'short', $job, $cvRow, [], false);
+$wtext = json_encode($writtenPayload);
+check('written mode overrides the spoken-delivery rules', str_contains($wtext, 'NOT SPOKEN') && str_contains($wtext, 'flowing first-person prose'));
+check('written mode gets a larger output budget', $writtenPayload['max_output_tokens'] > $payload['max_output_tokens']);
+check('written mode is told the text came off a paper', str_contains($wtext, 'read off a question paper'));
+check('auto mode can still choose a written answer', str_contains($ptext, 'has to WRITE out'));
 check('system prompt contains anti-fabrication rule', str_contains(json_encode($payload['instructions']), 'Never invent employment history'));
 
 // ---------------------------------------------------------------- Upload validation
@@ -205,6 +223,80 @@ check('TXT normalisation', CVService::normaliseText("a\r\n\r\n\r\n\r\nb\t\tc") =
 $wav = 'RIFF' . pack('V', 36 + 16000) . 'WAVEfmt ' . pack('VvvVVvv', 16, 1, 1, 16000, 32000, 2, 16) . 'data' . pack('V', 16000) . str_repeat("\0\0", 8000);
 check('WAV audio accepted', FileUploadService::validate($mk('q.wav', $wav), FileUploadService::AUDIO_TYPES, $max, 'recording')['ext'] === 'wav');
 check('audio wrong type rejected', throws(fn () => FileUploadService::validate($mk('q.webm', $cvText), FileUploadService::AUDIO_TYPES, $max, 'recording'), HttpException::class));
+
+// ---------------------------------------------------------------- Scanned papers
+section('Scanned question papers');
+$jpg = "\xFF\xD8\xFF\xE0" . pack('n', 16) . 'JFIF' . "\0" . str_repeat("\x20", 400) . "\xFF\xD9";
+$png = base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAAMBAQAY3Y2wAAAAAElFTkSuQmCC');   // real 1x1 PNG
+$webp = base64_decode('UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==');  // real 1x1 lossless WebP
+check('JPEG page accepted', FileUploadService::validate($mk('page-1.jpg', $jpg), FileUploadService::SCAN_TYPES, $max, 'page 1')['mime'] === 'image/jpeg');
+check('PNG page accepted', FileUploadService::validate($mk('page-1.png', $png), FileUploadService::SCAN_TYPES, $max, 'page 1')['ext'] === 'png');
+check('WebP page accepted', FileUploadService::validate($mk('page-1.webp', $webp), FileUploadService::SCAN_TYPES, $max, 'page 1')['mime'] === 'image/webp');
+check('PDF paper accepted', FileUploadService::validate($mk('paper.pdf', $pdf), FileUploadService::SCAN_TYPES, $max, 'page 1')['ext'] === 'pdf');
+check('corrupt PNG rejected', throws(fn () => FileUploadService::validate($mk('page.png', "\x89PNG\r\n\x1A\n" . str_repeat("\0", 200)), FileUploadService::SCAN_TYPES, $max, 'page 1'), HttpException::class));
+check('image not accepted as a CV', throws(fn () => FileUploadService::validate($mk('cv.jpg', $jpg), FileUploadService::CV_TYPES, $max, 'CV'), HttpException::class, fn ($e) => $e->status() === 415));
+check('SVG page rejected', throws(fn () => FileUploadService::validate($mk('page.svg', '<svg onload="alert(1)"/>'), FileUploadService::SCAN_TYPES, $max, 'page 1'), HttpException::class, fn ($e) => $e->status() === 415));
+check('text renamed .jpg rejected', throws(fn () => FileUploadService::validate($mk('page.jpg', $cvText), FileUploadService::SCAN_TYPES, $max, 'page 1'), HttpException::class));
+check('DOCX not a scannable page', throws(fn () => FileUploadService::validate($mk('page.docx', $cvText), FileUploadService::SCAN_TYPES, $max, 'page 1'), HttpException::class, fn ($e) => $e->status() === 415));
+
+$scan = ScanService::normalise([
+    'document_type' => 'essay_exam',
+    'document_title' => '  Management  Paper 2 ',
+    'instructions_text' => 'Answer any three questions.',
+    'written_answer_expected' => true,
+    'notes' => '',
+    'questions' => [
+        ['number' => '1', 'text' => "Discuss  how you would\nmanage a late project.", 'marks' => '[20 marks]', 'question_type' => 'management'],
+        ['number' => '1', 'text' => 'Discuss how you would manage a late project.', 'marks' => '', 'question_type' => 'management'],
+        ['number' => '2', 'text' => 'Why?', 'marks' => '', 'question_type' => 'general'],
+        ['number' => '3', 'text' => 'Explain the role of stakeholder communication.', 'marks' => '', 'question_type' => 'nonsense'],
+    ],
+]);
+check('whitespace collapsed in questions', $scan['questions'][0]['text'] === 'Discuss how you would manage a late project.');
+check('duplicate questions dropped', count($scan['questions']) === 2);
+check('too-short lines dropped', !str_contains(json_encode($scan['questions']), 'Why?'));
+check('invalid question type coerced', $scan['questions'][1]['question_type'] === 'unknown');
+check('title trimmed', $scan['document_title'] === 'Management Paper 2');
+check('written expectation kept', $scan['written_answer_expected'] === true);
+check('marks preserved', $scan['questions'][0]['marks'] === '[20 marks]');
+$many = ScanService::normalise(['document_type' => 'other', 'questions' => array_map(
+    fn ($i) => ['number' => (string) $i, 'text' => 'Question number ' . $i . ' asks something specific.', 'marks' => '', 'question_type' => 'general'],
+    range(1, ScanService::MAX_QUESTIONS + 15)
+)]);
+check('question list capped', count($many['questions']) === ScanService::MAX_QUESTIONS);
+check('unknown document type coerced', $many['document_type'] === 'other');
+check('missing fields default safely', ScanService::normalise([])['questions'] === [] && ScanService::normalise([])['notes'] === '');
+check('session title names the paper', ScanService::sessionTitle($scan) === 'Essay / exam paper — Management Paper 2');
+check('session title without a printed title', ScanService::sessionTitle(['document_type' => 'application_form', 'document_title' => '']) === 'Application form');
+
+$page1 = ['tmp' => $tmp . '/sp1.png', 'ext' => 'png', 'mime' => 'image/png'];
+$page2 = ['tmp' => $tmp . '/sp2.jpg', 'ext' => 'jpg', 'mime' => 'image/jpeg'];
+file_put_contents($page1['tmp'], $png);
+file_put_contents($page2['tmp'], $jpg);
+$scanJob = ['id' => 1, 'title' => 'Senior Project Manager', 'company' => 'ABC Ltd', 'industry' => null, 'seniority' => 'senior',
+    'interview_type' => 'behavioural', 'main_skills' => 'Risk', 'description' => 'x', 'jd_summary_json' => null];
+$sp = ScanService::buildPayload(
+    [ScanService::imageInput($page1), ScanService::imageInput($page2)],
+    $scanJob, 'Section B only.', 'Acme Build, Eval360, PRINCE2'
+);
+$spText = json_encode($sp, JSON_UNESCAPED_SLASHES);
+check('scan payload: strict scanned_questions schema', ($sp['text']['format']['name'] ?? '') === 'scanned_questions' && $sp['text']['format']['strict'] === true);
+check('scan payload: store disabled', $sp['store'] === false);
+check('scan payload: both pages in one call', substr_count($spText, '"type":"input_image"') === 2);
+check('scan payload: pages inlined as data URLs', str_contains($spText, '"image_url":"data:image/png;base64,') && str_contains($spText, '"image_url":"data:image/jpeg;base64,'));
+check('scan payload: full-resolution pass for text', substr_count($spText, '"detail":"high"') === 2);
+check('scan payload: page order and de-duplication stated', str_contains($spText, 'consecutive pages of the same question paper, in order') && str_contains($spText, 'never list the same question twice'));
+check('scan payload: job + CV vocabulary + candidate hint included', str_contains($spText, 'Senior Project Manager') && str_contains($spText, 'Eval360') && str_contains($spText, 'Section B only.'));
+check('scan payload: no local file paths leaked', !str_contains($spText, $tmp));
+check('scan payload: output budget set', $sp['max_output_tokens'] === 4000);
+check('scan payload: rubric/timing text excluded from questions', str_contains($sp['instructions'], 'Time allowed')
+    && str_contains($sp['instructions'], 'mark schemes') && str_contains($sp['instructions'], 'instructions_text, not in questions'));
+check('scan payload: never invent a question', str_contains($sp['instructions'], 'never invent one that is not on the page'));
+check('scan payload: unreadable pages reported, not guessed', str_contains($sp['instructions'], 'unreadable'));
+$one = ScanService::buildPayload([ScanService::imageInput($page1)]);
+check('single page prompt differs from multi-page', str_contains(json_encode($one), 'is one page of a question paper') && !str_contains(json_encode($one), 'consecutive pages'));
+check('scan payload without a job still valid', ($one['text']['format']['strict'] ?? false) === true && count($one['input'][0]['content']) === 2);
+check('PDF pages go through the Files API, not a data URL', str_contains(file_get_contents(APP_ROOT . '/app/Services/ScanService.php'), "'type' => 'input_file', 'file_id' => $fileId"));
 
 // ---------------------------------------------------------------- Logger redaction
 section('Logging hygiene');

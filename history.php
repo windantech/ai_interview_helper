@@ -35,7 +35,7 @@ $filters = [
     'job_id' => (int) ($_GET['job_id'] ?? 0) ?: null,
     'from'   => $date($_GET['from'] ?? null),
     'to'     => $date($_GET['to'] ?? null),
-    'type'   => in_array($_GET['type'] ?? '', ['live', 'practice'], true) ? $_GET['type'] : null,
+    'type'   => in_array($_GET['type'] ?? '', ['live', 'practice', 'scan'], true) ? $_GET['type'] : null,
 ];
 $page = max(1, (int) ($_GET['page'] ?? 1));
 $perPage = 15;

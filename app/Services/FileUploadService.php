@@ -25,12 +25,29 @@ final class FileUploadService
         'txt'  => ['text/plain', 'text/x-c', 'text/x-asm', 'application/octet-stream', 'text/csv'],
     ];
 
+    /** Page images a camera scan can produce (formats the OpenAI vision input accepts). */
+    public const IMAGE_TYPES = [
+        'jpg'  => ['image/jpeg'],
+        'jpeg' => ['image/jpeg'],
+        'png'  => ['image/png'],
+        'webp' => ['image/webp'],
+    ];
+
+    /** A scanned question paper: page images, or a PDF of the paper. */
+    public const SCAN_TYPES = self::IMAGE_TYPES + [
+        'pdf' => ['application/pdf', 'application/x-pdf'],
+    ];
+
     /** Canonical MIME to report/send per extension. */
     public const CANONICAL_MIME = [
         'pdf'  => 'application/pdf',
         'doc'  => 'application/msword',
         'docx' => 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'txt'  => 'text/plain',
+        'jpg'  => 'image/jpeg',
+        'jpeg' => 'image/jpeg',
+        'png'  => 'image/png',
+        'webp' => 'image/webp',
         'webm' => 'audio/webm',
         'wav'  => 'audio/wav',
         'mp3'  => 'audio/mpeg',
@@ -137,6 +154,10 @@ final class FileUploadService
             'webm' => fn () => str_starts_with($head, "\x1A\x45\xDF\xA3"),
             'wav'  => fn () => str_starts_with($head, 'RIFF'),
             'ogg'  => fn () => str_starts_with($head, 'OggS'),
+            'jpg'  => fn () => str_starts_with($head, "\xFF\xD8\xFF"),
+            'jpeg' => fn () => str_starts_with($head, "\xFF\xD8\xFF"),
+            'png'  => fn () => str_starts_with($head, "\x89PNG\r\n\x1A\n"),
+            'webp' => fn () => str_starts_with($head, 'RIFF') && substr($head, 8, 4) === 'WEBP',
         ];
         if (isset($signatures[$ext]) && !$signatures[$ext]()) {
             throw new HttpException(415, sprintf('The file does not look like a valid %s file.', strtoupper($ext)));

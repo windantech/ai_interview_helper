@@ -159,8 +159,14 @@ function label_for(string $group, ?string $value): string
         ],
         'answer_mode' => [
             'auto' => 'Auto', 'quick' => 'Quick', 'star' => 'STAR', 'technical' => 'Technical',
-            'leadership' => 'Leadership', 'general' => 'General',
+            'leadership' => 'Leadership', 'general' => 'General', 'written' => 'Written',
         ],
+        'document_type' => [
+            'interview_questions' => 'Interview questions', 'application_form' => 'Application form',
+            'essay_exam' => 'Essay / exam paper', 'assignment' => 'Assignment',
+            'job_description' => 'Job description', 'other' => 'Question sheet', 'unreadable' => 'Partly unreadable',
+        ],
+        'session_type' => ['live' => 'Interview', 'practice' => 'Practice', 'scan' => 'Scanned paper'],
         'question_type' => [
             'behavioural' => 'Behavioural', 'technical' => 'Technical', 'situational' => 'Situational',
             'leadership' => 'Leadership', 'competency' => 'Competency', 'motivation' => 'Motivation',
@@ -185,6 +191,10 @@ function options_for(string $group): array
         ),
         'answer_mode' => [
             'auto' => 'Auto', 'quick' => 'Quick', 'star' => 'STAR', 'technical' => 'Technical', 'leadership' => 'Leadership',
+        ],
+        // Scanned papers can also be answered in writing (essays, application forms).
+        'scan_answer_mode' => [
+            'auto' => 'Auto', 'written' => 'Written', 'quick' => 'Quick', 'star' => 'STAR', 'technical' => 'Technical',
         ],
         default => [],
     };
@@ -228,6 +238,10 @@ function icon(string $name, string $class = ''): string
         'zap'       => '<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z"/>',
         'arrow-right' => '<path d="M5 12h14M12 5l7 7-7 7"/>',
         'copy'      => '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+        'scan'      => '<path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M3 12h18"/>',
+        'camera'    => '<path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3Z"/><circle cx="12" cy="13" r="3.5"/>',
+        'image'     => '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/>',
+        'list'      => '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>',
     ];
     $svg = $paths[$name] ?? $paths['info'];
     return '<svg class="icon ' . e($class) . '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' . $svg . '</svg>';

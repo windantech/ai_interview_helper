@@ -71,6 +71,7 @@ $first = explode(' ', trim((string) $user['name']))[0];
 
 <section class="quick-actions" aria-label="Quick actions">
     <a class="qa card" href="<?= e(url('interview.php')) ?>"><?= icon('mic') ?><span>Start Interview</span></a>
+    <a class="qa card" href="<?= e(url('scan.php')) ?>"><?= icon('scan') ?><span>Scan Paper</span></a>
     <a class="qa card" href="<?= e(url('cv.php')) ?>"><?= icon('upload') ?><span>Upload CV</span></a>
     <a class="qa card" href="<?= e(url('jobs.php', ['new' => 1])) ?>"><?= icon('plus') ?><span>Add Job</span></a>
     <a class="qa card" href="<?= e(url('history.php')) ?>"><?= icon('history') ?><span>View History</span></a>
@@ -91,7 +92,7 @@ $first = explode(' ', trim((string) $user['name']))[0];
                                 <strong><?= e($s['title']) ?></strong>
                                 <small class="muted"><?= e(format_date($s['started_at'])) ?> · <?= (int) $s['question_count'] ?> question<?= (int) $s['question_count'] === 1 ? '' : 's' ?></small>
                             </span>
-                            <?php if ($s['session_type'] === 'practice'): ?><span class="badge">Practice</span><?php elseif ($s['status'] === 'active'): ?><span class="badge badge-success">Active</span><?php endif; ?>
+                            <?php if ($s['session_type'] !== 'live'): ?><span class="badge"><?= e(label_for('session_type', $s['session_type'])) ?></span><?php elseif ($s['status'] === 'active'): ?><span class="badge badge-success">Active</span><?php endif; ?>
                         </a>
                     </li>
                 <?php endforeach; ?>

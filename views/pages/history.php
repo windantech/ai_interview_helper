@@ -36,6 +36,7 @@ $qs = fn (array $extra) => url('history.php', array_filter(array_merge([
             <option value="">All</option>
             <option value="live" <?= $filters['type'] === 'live' ? 'selected' : '' ?>>Interviews</option>
             <option value="practice" <?= $filters['type'] === 'practice' ? 'selected' : '' ?>>Practice</option>
+            <option value="scan" <?= $filters['type'] === 'scan' ? 'selected' : '' ?>>Scanned papers</option>
         </select>
     </div>
     <div class="field">
@@ -69,7 +70,7 @@ $qs = fn (array $extra) => url('history.php', array_filter(array_merge([
             <?php foreach ($items as $s): ?>
                 <tr data-session-id="<?= (int) $s['id'] ?>">
                     <td data-label="Date"><a class="strong" href="<?= e(url('history.php', ['id' => $s['id']])) ?>"><?= e(format_date($s['started_at'])) ?></a>
-                        <?php if ($s['session_type'] === 'practice'): ?> <span class="badge">Practice</span><?php endif; ?>
+                        <?php if ($s['session_type'] !== 'live'): ?> <span class="badge"><?= e(label_for('session_type', $s['session_type'])) ?></span><?php endif; ?>
                         <?php if ($s['status'] === 'active'): ?> <span class="badge badge-success">Active</span><?php endif; ?>
                     </td>
                     <td data-label="Job"><?= e($s['job_title'] ?: '—') ?></td>

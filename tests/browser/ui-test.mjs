@@ -136,7 +136,7 @@ await page.screenshot({ path: `${OUT}/interview-answer-1440.png`, fullPage: true
 // ------------------------------------------------------------------ responsive sweep
 section('Responsive: no horizontal scroll, 44px touch targets');
 const widths = [320, 360, 375, 390, 414, 768, 1024, 1440];
-const pages = ['dashboard.php', 'cv.php', 'jobs.php', 'jobs.php?new=1', 'interview.php', 'practice.php', 'history.php', 'settings.php', 'privacy.php'];
+const pages = ['dashboard.php', 'cv.php', 'jobs.php', 'jobs.php?new=1', 'interview.php', 'scan.php', 'practice.php', 'history.php', 'settings.php', 'privacy.php'];
 const overflow = [];
 const smallTargets = new Set();
 for (const w of widths) {
