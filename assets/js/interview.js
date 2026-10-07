@@ -251,7 +251,7 @@
     function paintInstructions() {
         var t = S.instructions;
         ins.badge.hidden = !t;
-        ins.preview.textContent = t ? (t.replace(/\s+/g, ' ').slice(0, 90) + (t.length > 90 ? '…' : '')) : 'Optional — tell the AI which examples to use';
+        ins.preview.textContent = t ? (t.replace(/\s+/g, ' ').slice(0, 90) + (t.length > 90 ? '…' : '')) : 'Add experience your CV leaves out, or say which examples to use';
         ins.count.textContent = ins.text.value.length + ' / ' + (cfg.maxInstructions || 2000);
     }
 

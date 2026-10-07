@@ -124,10 +124,10 @@ $modes = options_for('scan_answer_mode');
             <input type="text" id="sc-hint" maxlength="500" placeholder="e.g. This is section B — I only need to answer three questions.">
         </div>
         <div class="field">
-            <label for="sc-ins">Your instructions for these answers</label>
+            <label for="sc-ins">Your experience &amp; instructions for these answers</label>
             <textarea id="sc-ins" rows="3" maxlength="<?= \App\Models\InterviewSession::MAX_INSTRUCTIONS ?>"
-                placeholder="e.g. When asked for a sample project, use finKAP — I built the loan module and integrated M-Pesa Paybill."><?= e($instructions) ?></textarea>
-            <p class="hint">Used for every answer from this paper. Facts you add here can be used in answers.</p>
+                placeholder="e.g. I have built ML models — a churn classifier in Python and scikit-learn, trained on 2 years of billing data.&#10;When asked for a sample project, use finKAP — I built the loan module and integrated M-Pesa Paybill.&#10;Mention my PRINCE2 certification when relevant."><?= e($instructions) ?></textarea>
+            <p class="hint">Anything you have actually done that your CV does not mention — tools, projects, domains — add it here and answers will use it with the same confidence as your CV. Used for every answer from this paper.</p>
         </div>
     </details>
 

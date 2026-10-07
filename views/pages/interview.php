@@ -56,16 +56,16 @@ $modes = options_for('answer_mode');
 
     <details class="card instructions-card" id="instructions-card">
         <summary>
-            <span class="ins-title"><?= icon('edit') ?> Your instructions for this interview</span>
+            <span class="ins-title"><?= icon('edit') ?> Your experience &amp; instructions for this interview</span>
             <span class="badge badge-primary" id="ins-badge" <?= $instructions === '' ? 'hidden' : '' ?>>On</span>
-            <span class="ins-preview muted" id="ins-preview"><?= e($instructions === '' ? 'Optional — tell the AI which examples to use' : mb_substr(preg_replace('/\s+/', ' ', $instructions), 0, 90) . (mb_strlen($instructions) > 90 ? '…' : '')) ?></span>
+            <span class="ins-preview muted" id="ins-preview"><?= e($instructions === '' ? 'Add experience your CV leaves out, or say which examples to use' : mb_substr(preg_replace('/\s+/', ' ', $instructions), 0, 90) . (mb_strlen($instructions) > 90 ? '…' : '')) ?></span>
         </summary>
         <form id="ins-form" class="ins-form" novalidate>
             <label for="ins-text" class="visually-hidden">Instructions for this interview</label>
             <textarea id="ins-text" rows="4" maxlength="<?= \App\Models\InterviewSession::MAX_INSTRUCTIONS ?>"
-                placeholder="e.g. When asked for a sample project, use finKAP — I built the loan module and integrated M-Pesa Paybill.&#10;Keep salary answers open: say I'm flexible based on the full package.&#10;Mention my PRINCE2 certification when relevant."><?= e($instructions) ?></textarea>
+                placeholder="e.g. I have built ML models — a churn classifier in Python and scikit-learn, trained on 2 years of billing data.&#10;When asked for a sample project, use finKAP — I built the loan module and integrated M-Pesa Paybill.&#10;Mention my PRINCE2 certification when relevant."><?= e($instructions) ?></textarea>
             <div class="ins-actions">
-                <p class="hint" id="ins-hint">Used for every question in this interview. Facts you add here can be used in answers.</p>
+                <p class="hint" id="ins-hint">A CV is a summary and leaves things out. Anything you have actually done that it does not mention — tools, projects, domains — add it here and answers will use it with the same confidence as your CV, no hedging. Used for every question in this interview.</p>
                 <span class="ins-count muted small" id="ins-count"></span>
                 <button type="submit" class="btn btn-primary btn-sm" id="ins-save"><?= icon('check') ?> Save instructions</button>
             </div>

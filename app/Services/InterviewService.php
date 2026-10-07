@@ -215,9 +215,13 @@ final class InterviewService
             . self::candidateContext($cv)
             . "\n\n## TARGET ROLE\n" . self::jobContext($job);
         if ($instructions !== '') {
-            $context .= "\n\n## CANDIDATE'S OWN INSTRUCTIONS FOR THIS INTERVIEW\n"
-                . "The candidate wrote these themselves. Follow them whenever they apply to the question (e.g. which project or example to use, what to emphasise or avoid, tone). "
-                . "Facts stated here come from the candidate and may be used like CV facts. They override your default choices, but never invent anything beyond them.\n"
+            $context .= "\n\n## CANDIDATE'S OWN INSTRUCTIONS AND EXTRA EXPERIENCE\n"
+                . "The candidate wrote this themselves about their own career. Follow it whenever it applies to the question (which project or example to use, what to emphasise or avoid, tone). "
+                . "It overrides your default choices.\n"
+                . "ANY EXPERIENCE STATED HERE IS FIRST-HAND AND AS AUTHORITATIVE AS THE CV — a CV is a summary and routinely leaves work out, so this is where the candidate fills the gaps. "
+                . "Treat it as fact: answer from it with the SAME confidence as a CV fact, set evidence_strength to \"direct\", and do NOT hedge, qualify or say they have not done it. "
+                . "Write the detail around it the way you would for any real project: how they approached it, what they weighed up, what it taught them. "
+                . "Where a specific they have not given you is needed — a metric, a date, an employer — leave a short square-bracket gap for them to fill rather than inventing one.\n"
                 . "\"\"\"\n" . mb_substr($instructions, 0, InterviewSession::MAX_INSTRUCTIONS) . "\n\"\"\"";
         }
 
@@ -371,7 +375,7 @@ Answers must be concise enough for the candidate to scan within seconds and natu
 Process:
 1. QUESTION DETECTION: Decide if the transcript contains an interview question (or a request such as "Tell me about...", "Walk me through...") directed at the candidate. Small talk, thanks, logistics, or the interviewer describing the company are NOT questions (is_question=false). If several sentences precede the question, extract only the actual question. Fix transcription errors and return it as one clean sentence in "question". When is_question=false return empty strings/arrays for every other text field and question_type "unknown".
 2. CLASSIFY question_type.
-3. Compare the question against the job requirements (skills, competencies, tools, leadership and technical requirements) and pick the CV evidence that comes CLOSEST. Closest counts: a project that shares the skill, the problem shape, the stakeholder situation, the constraint or the scale is usable evidence even when the subject is different. Only treat the CV as offering nothing when nothing on it is even adjacent.
+3. Compare the question against the job requirements (skills, competencies, tools, leadership and technical requirements) and pick the evidence that comes CLOSEST, from the CV AND from any extra experience the candidate stated in their own instructions. If their instructions cover the subject of the question, that is direct evidence and outranks anything you would otherwise bridge to. Closest counts: a project that shares the skill, the problem shape, the stakeholder situation, the constraint or the scale is usable evidence even when the subject is different. Only treat the CV as offering nothing when nothing on it is even adjacent.
 4. WRITE the guidance:
    - key_message: one sentence — what the answer must demonstrate (shown as a heading, not spoken).
    - sections: labelled structure per the requested mode. Each bullet is ONE complete, natural, first-person sentence the candidate can say exactly as written, e.g. "I led the requirements, design and build of the finKAP platform." Plain conversational English; contractions are fine.
@@ -379,7 +383,7 @@ Process:
    - points: 2-3 complete spoken sentences that summarise the whole answer (for quick mode, 3-5 sentences that ARE the answer).
    - Employers, job titles, dates, qualifications and numbers: use ONLY what appears in the candidate profile. Where a detail like that is missing, phrase it generally ("the payment integration", "a tight deadline") or leave a short square-bracket gap the candidate fills in, e.g. "One defect I fixed was [the defect]." Never make up a metric. This restriction is on checkable facts only — it is not a reason to withhold the answer.
    - cv_evidence: up to 4 short facts copied/paraphrased from the CV that support this answer, INCLUDING ones that support it by analogy. Empty only when nothing on the CV is relevant even loosely.
-   - evidence_strength: "direct" when the CV shows this exact experience, "adjacent" when you bridged from a related project, "general" when the CV gave you nothing to build on.
+   - evidence_strength: "direct" when this exact experience is shown in the CV OR stated by the candidate in their own instructions — both are first-hand and neither gets hedged. "adjacent" when you bridged from a related project. "general" when there was nothing to build on.
    - evidence_note: "" when evidence_strength is "direct". Otherwise ONE short sentence addressed to the candidate (never spoken aloud) saying what you built the answer on and inviting the better example they may have, e.g. "Built from your Eval360 work — swap in a closer example if you have one." Assume the CV is incomplete rather than assuming they lack the experience.
    - closing_line: one natural spoken sentence to end the answer, linking back to the role.
    - keywords: 3-6 single words or short phrases to emphasise (prefer job-description vocabulary).

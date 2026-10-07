@@ -173,7 +173,12 @@ check('coaching style: approach first, signposted points, no filler, one CV exam
 check('technical answers: Approach → Key points → From my experience → Validation + frameworks', str_contains($ptext, 'From my experience') && str_contains($ptext, 'reproduce, measure, isolate, fix, validate'));
 check('no instructions section when none given', !str_contains($ptext, "OWN INSTRUCTIONS"));
 $withIns = json_encode($svc->buildAnswerPayload('Tell me about a project', 'auto', 'short', $job, $cvRow, [], true, 'When asked for a sample project, use finKAP.'));
-check('interview instructions included in prompt', str_contains($withIns, "CANDIDATE'S OWN INSTRUCTIONS FOR THIS INTERVIEW") && str_contains($withIns, 'use finKAP'));
+check('interview instructions included in prompt', str_contains($withIns, "CANDIDATE'S OWN INSTRUCTIONS AND EXTRA EXPERIENCE") && str_contains($withIns, 'use finKAP'));
+check('experience the candidate adds is first-hand, not hedged', str_contains($withIns, 'AS AUTHORITATIVE AS THE CV')
+    && str_contains($withIns, 'do NOT hedge, qualify or say they have not done it'));
+check('and it counts as direct evidence', str_contains($withIns, 'set evidence_strength to \\"direct\\"')
+    && str_contains($sys, 'OR stated by the candidate in their own instructions'));
+check('specifics they did not give are still gaps, not inventions', str_contains($withIns, 'leave a short square-bracket gap for them to fill rather than inventing one'));
 check('strict structured output requested', $payload['text']['format']['strict'] === true && $payload['text']['format']['type'] === 'json_schema');
 check('no-CV context forbids invention', str_contains(InterviewService::candidateContext(null), 'never invent'));
 check('prompt asks for speakable first-person sentences, no coaching instructions', str_contains($payload['instructions'], 'say exactly as written') && str_contains($payload['instructions'], 'NEVER be instructions'));
